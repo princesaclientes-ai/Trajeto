@@ -15,11 +15,15 @@ const selectedPointCount = document.querySelector("#selectedPointCount");
 const lastRefresh = document.querySelector("#lastRefresh");
 const driverFilter = document.querySelector("#driverFilter");
 const clientFilter = document.querySelector("#clientFilter");
+const directionFilter = document.querySelector("#directionFilter");
+const lineFilter = document.querySelector("#lineFilter");
 const statusFilter = document.querySelector("#statusFilter");
 const selectedRouteTitle = document.querySelector("#selectedRouteTitle");
 const selectedRouteStatus = document.querySelector("#selectedRouteStatus");
 const selectedMatricula = document.querySelector("#selectedMatricula");
 const selectedCliente = document.querySelector("#selectedCliente");
+const selectedSentido = document.querySelector("#selectedSentido");
+const selectedLinha = document.querySelector("#selectedLinha");
 const selectedStart = document.querySelector("#selectedStart");
 const selectedEnd = document.querySelector("#selectedEnd");
 const pointsTable = document.querySelector("#pointsTable");
@@ -33,14 +37,18 @@ let refreshTimer = null;
 function getFilteredRoutes() {
   const driverText = driverFilter.value.trim().toLowerCase();
   const clientText = clientFilter.value.trim().toLowerCase();
+  const directionValue = directionFilter.value;
+  const lineText = lineFilter.value.trim().toLowerCase();
   const statusValue = statusFilter.value;
 
   return routes.filter((route) => {
     const matchesDriver = route.matricula_condutor.toLowerCase().includes(driverText);
     const matchesClient = route.cliente.toLowerCase().includes(clientText);
+    const matchesDirection = !directionValue || route.sentido === directionValue;
+    const matchesLine = (route.nome_linha || "").toLowerCase().includes(lineText);
     const matchesStatus = !statusValue || route.status === statusValue;
 
-    return matchesDriver && matchesClient && matchesStatus;
+    return matchesDriver && matchesClient && matchesDirection && matchesLine && matchesStatus;
   });
 }
 
@@ -79,6 +87,7 @@ function getStatusLabel(status) {
 function renderRouteList() {
   routeList.innerHTML = "";
   const filteredRoutes = getFilteredRoutes();
+  routeListStatus.textContent = `${filteredRoutes.length} exibidos`;
 
   if (filteredRoutes.length === 0) {
     routeList.innerHTML = '<p class="empty-cell">Nenhum trajeto encontrado.</p>';
@@ -104,6 +113,8 @@ function renderRouteList() {
       </span>
       <span class="route-meta">
         Matricula: ${route.matricula_condutor}<br />
+        Sentido: ${route.sentido || "-"}<br />
+        Linha: ${route.nome_linha || "-"}<br />
         Pontos: ${count} | Inicio: ${formatDate(route.data_hora_inicio)}
       </span>
     `;
@@ -122,6 +133,8 @@ function renderRouteDetails(route, points) {
   }`.trim();
   selectedMatricula.textContent = route?.matricula_condutor || "-";
   selectedCliente.textContent = route?.cliente || "-";
+  selectedSentido.textContent = route?.sentido || "-";
+  selectedLinha.textContent = route?.nome_linha || "-";
   selectedStart.textContent = formatDate(route?.data_hora_inicio);
   selectedEnd.textContent = formatDate(route?.data_hora_fim);
   selectedPointCount.textContent = String(points.length);
@@ -206,7 +219,7 @@ async function loadRoutes() {
 
   const { data, error } = await supabaseClient
     .from("trajetos")
-    .select("id, matricula_condutor, cliente, status, data_hora_inicio, data_hora_fim, created_at")
+    .select("id, matricula_condutor, cliente, sentido, nome_linha, status, data_hora_inicio, data_hora_fim, created_at")
     .order("created_at", { ascending: false })
     .limit(100);
 
@@ -276,6 +289,8 @@ refreshButton.addEventListener("click", refreshDashboard);
 autoRefreshToggle.addEventListener("change", syncRefreshTimer);
 driverFilter.addEventListener("input", renderRouteList);
 clientFilter.addEventListener("input", renderRouteList);
+directionFilter.addEventListener("change", renderRouteList);
+lineFilter.addEventListener("input", renderRouteList);
 statusFilter.addEventListener("change", renderRouteList);
 
 refreshDashboard();

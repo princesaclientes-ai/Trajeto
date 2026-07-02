@@ -7,12 +7,20 @@ create table if not exists public.trajetos (
   id uuid primary key default gen_random_uuid(),
   matricula_condutor text not null,
   cliente text not null,
+  sentido text null,
+  nome_linha text null,
   status text not null default 'em_andamento',
   data_hora_inicio timestamptz not null default now(),
   data_hora_fim timestamptz null,
   created_at timestamptz not null default now(),
   constraint trajetos_status_check check (status in ('em_andamento', 'finalizado'))
 );
+
+alter table public.trajetos
+  add column if not exists sentido text null;
+
+alter table public.trajetos
+  add column if not exists nome_linha text null;
 
 create table if not exists public.trajeto_pontos (
   id uuid primary key default gen_random_uuid(),
@@ -41,6 +49,12 @@ create index if not exists idx_trajetos_matricula_condutor
 
 create index if not exists idx_trajetos_cliente
   on public.trajetos (cliente);
+
+create index if not exists idx_trajetos_sentido
+  on public.trajetos (sentido);
+
+create index if not exists idx_trajetos_nome_linha
+  on public.trajetos (nome_linha);
 
 create index if not exists idx_trajetos_inicio
   on public.trajetos (data_hora_inicio desc);

@@ -1,13 +1,13 @@
 :root {
   color-scheme: light;
-  --bg: #eef3f1;
+  --bg: #eef5ff;
   --panel: #ffffff;
-  --text: #17211d;
-  --muted: #5c6964;
-  --line: #d8e1dd;
-  --primary: #116149;
-  --primary-dark: #0b4534;
-  --accent: #f0b429;
+  --text: #142033;
+  --muted: #607086;
+  --line: #d6e2f1;
+  --primary: #1264c8;
+  --primary-dark: #0b4d9c;
+  --accent: #24a0ed;
   --danger: #a83b35;
   --shadow: 0 18px 48px rgba(20, 34, 29, 0.14);
 }
@@ -21,12 +21,13 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   font-family: Arial, Helvetica, sans-serif;
-  background: linear-gradient(180deg, #f7faf8 0%, var(--bg) 100%);
+  background: linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
   color: var(--text);
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -53,6 +54,14 @@ input {
 .brand-block,
 .route-header {
   margin-bottom: 24px;
+}
+
+.instruction {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.98rem;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .route-header {
@@ -90,7 +99,8 @@ h1 {
   font-weight: 700;
 }
 
-.field input {
+.field input,
+.field select {
   width: 100%;
   min-height: 52px;
   border: 1px solid var(--line);
@@ -101,9 +111,26 @@ h1 {
   outline: none;
 }
 
-.field input:focus {
+.field select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--primary) 50%),
+    linear-gradient(135deg, var(--primary) 50%, transparent 50%);
+  background-position: calc(100% - 20px) 22px, calc(100% - 14px) 22px;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 42px;
+}
+
+.field input:focus,
+.field select:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(17, 97, 73, 0.15);
+  box-shadow: 0 0 0 3px rgba(18, 100, 200, 0.16);
+}
+
+.field select:disabled {
+  color: #8b9bb0;
+  background-color: #eef3f8;
+  cursor: not-allowed;
 }
 
 .actions {
@@ -153,7 +180,7 @@ h1 {
 .status-pill {
   flex: 0 0 auto;
   border-radius: 999px;
-  background: rgba(17, 97, 73, 0.12);
+  background: rgba(18, 100, 200, 0.12);
   color: var(--primary);
   padding: 7px 10px;
   font-size: 0.78rem;

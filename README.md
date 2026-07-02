@@ -8,6 +8,7 @@ Aplicacao web responsiva para o condutor iniciar um trajeto, registrar varios po
 - `index.html`: estrutura da tela.
 - `styles.css`: layout responsivo pensado para celular Android.
 - `app.js`: integracao com Supabase, geolocalizacao e fluxo completo do trajeto.
+- `route-options.js`: base de clientes, sentidos e linhas usada nos selects do aplicativo.
 - `painel.html`: tela desktop local para visualizar trajetos e pontos capturados.
 - `painel.css`: layout desktop do painel.
 - `painel.js`: leitura do Supabase e atualizacao automatica do painel.
@@ -65,7 +66,7 @@ http://192.168.0.10:5500
 ```
 
 5. Permita o acesso a localizacao quando o navegador pedir.
-6. Informe matrícula e cliente.
+6. Informe matricula, selecione o cliente, selecione o sentido e selecione a linha.
 7. Toque em `Primeiro ponto`. Esse clique cria o trajeto e grava o ponto 1.
 8. Toque em `Registrar ponto` quantas vezes precisar para gravar os proximos pontos.
 9. Toque em `Finalizar trajeto`. O app limpa os campos e fica pronto para outra rota.

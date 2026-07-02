@@ -63,6 +63,18 @@
               <input id="clientFilter" type="search" placeholder="Filtrar cliente" />
             </label>
             <label>
+              <span>Sentido</span>
+              <select id="directionFilter">
+                <option value="">Todos</option>
+                <option value="Entrada">Entrada</option>
+                <option value="Saída">Saida</option>
+              </select>
+            </label>
+            <label>
+              <span>Linha</span>
+              <input id="lineFilter" type="search" placeholder="Filtrar linha" />
+            </label>
+            <label>
               <span>Status</span>
               <select id="statusFilter">
                 <option value="">Todos</option>
@@ -91,6 +103,14 @@
             <div>
               <dt>Cliente</dt>
               <dd id="selectedCliente">-</dd>
+            </div>
+            <div>
+              <dt>Sentido</dt>
+              <dd id="selectedSentido">-</dd>
+            </div>
+            <div>
+              <dt>Linha</dt>
+              <dd id="selectedLinha">-</dd>
             </div>
             <div>
               <dt>Inicio</dt>

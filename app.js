@@ -8,11 +8,15 @@ const routePanel = document.querySelector("#routePanel");
 const startForm = document.querySelector("#startForm");
 const matriculaInput = document.querySelector("#matriculaCondutor");
 const clienteInput = document.querySelector("#cliente");
+const sentidoInput = document.querySelector("#sentido");
+const nomeLinhaInput = document.querySelector("#nomeLinha");
 const startButton = document.querySelector("#startButton");
 const registerPointButton = document.querySelector("#registerPointButton");
 const finishRouteButton = document.querySelector("#finishRouteButton");
 const activeMatricula = document.querySelector("#activeMatricula");
 const activeCliente = document.querySelector("#activeCliente");
+const activeSentido = document.querySelector("#activeSentido");
+const activeLinha = document.querySelector("#activeLinha");
 const pointCount = document.querySelector("#pointCount");
 const message = document.querySelector("#message");
 const routeStatusTitle = document.querySelector("#routeStatusTitle");
@@ -20,6 +24,59 @@ const statusPill = document.querySelector("#statusPill");
 
 let activeRoute = null;
 let totalPoints = 0;
+const routeOptions = window.ROUTE_OPTIONS || [];
+
+function uniqueSorted(values) {
+  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+}
+
+function resetSelect(select, placeholder, disabled = true) {
+  select.innerHTML = `<option value="">${placeholder}</option>`;
+  select.disabled = disabled;
+}
+
+function fillSelect(select, placeholder, values) {
+  resetSelect(select, placeholder, values.length === 0);
+
+  values.forEach((value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.appendChild(option);
+  });
+}
+
+function populateClientes() {
+  fillSelect(
+    clienteInput,
+    "Selecione o cliente",
+    uniqueSorted(routeOptions.map((option) => option.cliente))
+  );
+}
+
+function populateSentidos() {
+  const cliente = clienteInput.value;
+  const sentidos = uniqueSorted(
+    routeOptions
+      .filter((option) => option.cliente === cliente)
+      .map((option) => option.sentido)
+  );
+
+  fillSelect(sentidoInput, "Selecione o sentido", sentidos);
+  resetSelect(nomeLinhaInput, "Selecione a linha");
+}
+
+function populateLinhas() {
+  const cliente = clienteInput.value;
+  const sentido = sentidoInput.value;
+  const linhas = uniqueSorted(
+    routeOptions
+      .filter((option) => option.cliente === cliente && option.sentido === sentido)
+      .map((option) => option.nome_linha)
+  );
+
+  fillSelect(nomeLinhaInput, "Selecione a linha", linhas);
+}
 
 function isSupabaseConfigured() {
   return (
@@ -58,6 +115,8 @@ function showActiveRoute(route) {
   activeRoute = route;
   activeMatricula.textContent = route.matricula_condutor;
   activeCliente.textContent = route.cliente;
+  activeSentido.textContent = route.sentido || "-";
+  activeLinha.textContent = route.nome_linha || "-";
   pointCount.textContent = String(totalPoints);
   startPanel.classList.add("hidden");
   routePanel.classList.remove("hidden");
@@ -79,11 +138,15 @@ function resetForNewRoute() {
   pointCount.textContent = "0";
   activeMatricula.textContent = "-";
   activeCliente.textContent = "-";
+  activeSentido.textContent = "-";
+  activeLinha.textContent = "-";
   routeStatusTitle.textContent = "Em andamento";
   statusPill.textContent = "ativo";
   statusPill.classList.remove("finished");
   registerPointButton.disabled = false;
   finishRouteButton.disabled = false;
+  resetSelect(sentidoInput, "Selecione o sentido");
+  resetSelect(nomeLinhaInput, "Selecione a linha");
   routePanel.classList.add("hidden");
   startPanel.classList.remove("hidden");
   matriculaInput.focus();
@@ -115,9 +178,11 @@ startForm.addEventListener("submit", async (event) => {
 
   const matricula = matriculaInput.value.trim();
   const cliente = clienteInput.value.trim();
+  const sentido = sentidoInput.value.trim();
+  const nomeLinha = nomeLinhaInput.value.trim();
 
-  if (!matricula || !cliente) {
-    setMessage("Informe matrícula do condutor e cliente.", "error");
+  if (!matricula || !cliente || !sentido || !nomeLinha) {
+    setMessage("Informe matricula, cliente, sentido e linha.", "error");
     return;
   }
 
@@ -131,6 +196,8 @@ startForm.addEventListener("submit", async (event) => {
       .insert({
         matricula_condutor: matricula,
         cliente,
+        sentido,
+        nome_linha: nomeLinha,
         status: "em_andamento",
         data_hora_inicio: toIsoNow(),
       })
@@ -243,3 +310,7 @@ finishRouteButton.addEventListener("click", async () => {
     setLoading(finishRouteButton, false);
   }
 });
+
+clienteInput.addEventListener("change", populateSentidos);
+sentidoInput.addEventListener("change", populateLinhas);
+populateClientes();
