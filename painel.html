@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Painel de Pontos</title>
+    <link rel="stylesheet" href="painel.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script defer src="painel.js"></script>
+  </head>
+  <body>
+    <main class="dashboard-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Espelho da captura</p>
+          <h1>Painel de Pontos</h1>
+        </div>
+        <div class="topbar-actions">
+          <label class="live-toggle">
+            <input id="autoRefreshToggle" type="checkbox" checked />
+            <span>Ao vivo</span>
+          </label>
+          <button class="button secondary" id="refreshButton" type="button">Atualizar</button>
+        </div>
+      </header>
+
+      <section class="stats-grid" aria-label="Resumo">
+        <article class="stat-card">
+          <span>Trajetos</span>
+          <strong id="totalRoutes">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Em andamento</span>
+          <strong id="activeRoutes">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Condutores</span>
+          <strong id="totalDrivers">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Pontos do trajeto</span>
+          <strong id="selectedPointCount">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Ultima atualizacao</span>
+          <strong id="lastRefresh">-</strong>
+        </article>
+      </section>
+
+      <section class="workspace">
+        <aside class="route-list-panel" aria-label="Trajetos">
+          <div class="panel-title">
+            <h2>Trajetos</h2>
+            <span id="routeListStatus">Carregando...</span>
+          </div>
+          <div class="filters">
+            <label>
+              <span>Matricula</span>
+              <input id="driverFilter" type="search" placeholder="Filtrar condutor" />
+            </label>
+            <label>
+              <span>Cliente</span>
+              <input id="clientFilter" type="search" placeholder="Filtrar cliente" />
+            </label>
+            <label>
+              <span>Status</span>
+              <select id="statusFilter">
+                <option value="">Todos</option>
+                <option value="em_andamento">Ativos</option>
+                <option value="finalizado">Finalizados</option>
+              </select>
+            </label>
+          </div>
+          <div class="route-list" id="routeList"></div>
+        </aside>
+
+        <section class="detail-panel" aria-label="Detalhes do trajeto">
+          <div class="detail-header">
+            <div>
+              <p class="eyebrow">Trajeto selecionado</p>
+              <h2 id="selectedRouteTitle">Selecione um trajeto</h2>
+            </div>
+            <span class="status-pill" id="selectedRouteStatus">-</span>
+          </div>
+
+          <dl class="detail-grid">
+            <div>
+              <dt>Matricula</dt>
+              <dd id="selectedMatricula">-</dd>
+            </div>
+            <div>
+              <dt>Cliente</dt>
+              <dd id="selectedCliente">-</dd>
+            </div>
+            <div>
+              <dt>Inicio</dt>
+              <dd id="selectedStart">-</dd>
+            </div>
+            <div>
+              <dt>Fim</dt>
+              <dd id="selectedEnd">-</dd>
+            </div>
+          </dl>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ordem</th>
+                  <th>Data e hora</th>
+                  <th>Latitude</th>
+                  <th>Longitude</th>
+                  <th>Mapa</th>
+                </tr>
+              </thead>
+              <tbody id="pointsTable">
+                <tr>
+                  <td colspan="5" class="empty-cell">Nenhum trajeto selecionado.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <p class="message" id="panelMessage" role="status" aria-live="polite"></p>
+    </main>
+  </body>
+</html>

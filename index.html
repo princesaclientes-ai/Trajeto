@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Registro de Trajeto</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="panel" id="startPanel">
+        <div class="brand-block">
+          <p class="eyebrow">Controle de rota</p>
+          <h1>Registro de Trajeto</h1>
+        </div>
+
+        <form id="startForm" class="form-stack">
+          <label class="field">
+            <span>Matrícula do condutor</span>
+            <input
+              id="matriculaCondutor"
+              name="matriculaCondutor"
+              type="text"
+              autocomplete="off"
+              inputmode="text"
+              required
+              placeholder="Ex.: 12345"
+            />
+          </label>
+
+          <label class="field">
+            <span>Cliente</span>
+            <input
+              id="cliente"
+              name="cliente"
+              type="text"
+              autocomplete="organization"
+              required
+              placeholder="Nome do cliente"
+            />
+          </label>
+
+          <button class="primary-button" type="submit" id="startButton">
+            Primeiro ponto
+          </button>
+        </form>
+      </section>
+
+      <section class="panel route-panel hidden" id="routePanel" aria-live="polite">
+        <div class="route-header">
+          <div>
+            <p class="eyebrow">Trajeto ativo</p>
+            <h1 id="routeStatusTitle">Em andamento</h1>
+          </div>
+          <span class="status-pill" id="statusPill">ativo</span>
+        </div>
+
+        <dl class="route-data">
+          <div>
+            <dt>Matrícula do condutor</dt>
+            <dd id="activeMatricula">-</dd>
+          </div>
+          <div>
+            <dt>Cliente</dt>
+            <dd id="activeCliente">-</dd>
+          </div>
+          <div>
+            <dt>Pontos registrados</dt>
+            <dd id="pointCount">0</dd>
+          </div>
+        </dl>
+
+        <div class="actions">
+          <button class="primary-button" type="button" id="registerPointButton">
+            Registrar ponto
+          </button>
+          <button class="secondary-button" type="button" id="finishRouteButton">
+            Finalizar trajeto
+          </button>
+        </div>
+      </section>
+
+      <p class="message" id="message" role="status" aria-live="polite"></p>
+    </main>
+  </body>
+</html>
