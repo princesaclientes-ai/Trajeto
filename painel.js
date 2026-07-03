@@ -29,12 +29,15 @@ const selectedLinha = document.querySelector("#selectedLinha");
 const selectedStart = document.querySelector("#selectedStart");
 const selectedEnd = document.querySelector("#selectedEnd");
 const pointsTable = document.querySelector("#pointsTable");
+const mapStatus = document.querySelector("#mapStatus");
 const panelMessage = document.querySelector("#panelMessage");
 
 let routes = [];
 let pointCountByRouteId = new Map();
 let selectedRouteId = null;
 let refreshTimer = null;
+let routeMap = null;
+let routeMapLayer = null;
 
 function getFilteredRoutes() {
   const driverText = driverFilter.value.trim().toLowerCase();
@@ -88,6 +91,108 @@ function updateLastRefresh() {
 
 function getStatusLabel(status) {
   return status === "finalizado" ? "finalizado" : "ativo";
+}
+
+function getPointTypeLabel(type) {
+  const labels = {
+    primeiro: "Primeiro",
+    manual: "Manual",
+    trajeto: "Trajeto",
+  };
+
+  return labels[type] || "-";
+}
+
+function ensureRouteMap() {
+  if (routeMap || !window.L) {
+    return routeMap;
+  }
+
+  routeMap = L.map("routeMap", {
+    scrollWheelZoom: true,
+  }).setView([-22.9, -47.05], 11);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap",
+  }).addTo(routeMap);
+
+  routeMapLayer = L.layerGroup().addTo(routeMap);
+  setTimeout(() => routeMap.invalidateSize(), 0);
+  return routeMap;
+}
+
+function getMarkerIcon(point) {
+  const typeClass = point.tipo_ponto || "trajeto";
+
+  return L.divIcon({
+    className: "",
+    html: `<span class="point-marker ${typeClass}">${point.ordem_ponto}</span>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  });
+}
+
+function renderRouteMap(points) {
+  const map = ensureRouteMap();
+
+  if (!map || !routeMapLayer) {
+    mapStatus.textContent = "Mapa indisponivel";
+    return;
+  }
+
+  map.invalidateSize();
+
+  routeMapLayer.clearLayers();
+
+  const validPoints = points.filter(
+    (point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude)
+  );
+
+  if (validPoints.length === 0) {
+    mapStatus.textContent = "Sem pontos para exibir";
+    map.setView([-22.9, -47.05], 11);
+    setTimeout(() => map.invalidateSize(), 100);
+    return;
+  }
+
+  const latLngs = validPoints.map((point) => [point.latitude, point.longitude]);
+
+  if (latLngs.length > 1) {
+    L.polyline(latLngs, {
+      color: "#1264c8",
+      weight: 4,
+      opacity: 0.85,
+    }).addTo(routeMapLayer);
+  }
+
+  validPoints.forEach((point) => {
+    L.marker([point.latitude, point.longitude], {
+      icon: getMarkerIcon(point),
+      title: `Ponto ${point.ordem_ponto}`,
+    })
+      .bindPopup(
+        `<strong>Ponto ${point.ordem_ponto}</strong><br>` +
+          `Tipo: ${getPointTypeLabel(point.tipo_ponto)}<br>` +
+          `Horario: ${formatDate(point.data_hora_registro)}<br>` +
+          `Lat: ${formatNumber(point.latitude)}<br>` +
+          `Lng: ${formatNumber(point.longitude)}`
+      )
+      .addTo(routeMapLayer);
+  });
+
+  const fitMap = () => {
+    map.invalidateSize();
+    map.fitBounds(L.latLngBounds(latLngs), {
+      padding: [28, 28],
+      maxZoom: 17,
+    });
+  };
+
+  fitMap();
+  setTimeout(fitMap, 150);
+  setTimeout(fitMap, 500);
+  mapStatus.textContent = `${validPoints.length} pontos no mapa`;
 }
 
 function renderRouteList() {
@@ -146,16 +251,17 @@ function renderRouteDetails(route, points) {
   selectedPointCount.textContent = String(points.length);
   finishSelectedButton.disabled = !route || route.status !== "em_andamento";
   deleteSelectedButton.disabled = !route;
+  renderRouteMap(route ? points : []);
 
   if (!route) {
     pointsTable.innerHTML =
-      '<tr><td colspan="5" class="empty-cell">Nenhum trajeto selecionado.</td></tr>';
+      '<tr><td colspan="6" class="empty-cell">Nenhum trajeto selecionado.</td></tr>';
     return;
   }
 
   if (points.length === 0) {
     pointsTable.innerHTML =
-      '<tr><td colspan="5" class="empty-cell">Nenhum ponto registrado.</td></tr>';
+      '<tr><td colspan="6" class="empty-cell">Nenhum ponto registrado.</td></tr>';
     return;
   }
 
@@ -168,6 +274,7 @@ function renderRouteDetails(route, points) {
       return `
         <tr class="${point.id === latestPointId ? "latest" : ""}">
           <td>${point.ordem_ponto}</td>
+          <td>${getPointTypeLabel(point.tipo_ponto)}</td>
           <td>${formatDate(point.data_hora_registro)}</td>
           <td>${formatNumber(point.latitude)}</td>
           <td>${formatNumber(point.longitude)}</td>
@@ -210,7 +317,7 @@ async function loadSelectedRouteDetails() {
 
   const { data, error } = await supabaseClient
     .from("trajeto_pontos")
-    .select("id, latitude, longitude, data_hora_registro, ordem_ponto")
+    .select("id, latitude, longitude, data_hora_registro, ordem_ponto, tipo_ponto, precisao")
     .eq("trajeto_id", selectedRouteId)
     .order("ordem_ponto", { ascending: true });
 

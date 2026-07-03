@@ -18,6 +18,7 @@ const activeCliente = document.querySelector("#activeCliente");
 const activeSentido = document.querySelector("#activeSentido");
 const activeLinha = document.querySelector("#activeLinha");
 const pointCount = document.querySelector("#pointCount");
+const trackingStatus = document.querySelector("#trackingStatus");
 const message = document.querySelector("#message");
 const routeStatusTitle = document.querySelector("#routeStatusTitle");
 const statusPill = document.querySelector("#statusPill");
@@ -26,6 +27,12 @@ let activeRoute = null;
 let totalPoints = 0;
 const routeOptions = window.ROUTE_OPTIONS || [];
 const ACTIVE_ROUTE_STORAGE_KEY = "trajetoCaptura.activeRouteId";
+const TRACKING_MIN_DISTANCE_METERS = 50;
+const TRACKING_MIN_INTERVAL_MS = 15000;
+
+let routeWatchId = null;
+let lastTrackedPosition = null;
+let pointSaveQueue = Promise.resolve();
 
 function uniqueSorted(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
@@ -133,6 +140,10 @@ function setLoading(button, isLoading, loadingText) {
   button.textContent = isLoading ? loadingText : button.dataset.defaultText;
 }
 
+function setTrackingStatus(text) {
+  trackingStatus.textContent = text;
+}
+
 function toIsoNow() {
   return new Date().toISOString();
 }
@@ -144,8 +155,122 @@ function showActiveRoute(route) {
   activeSentido.textContent = route.sentido || "-";
   activeLinha.textContent = route.nome_linha || "-";
   pointCount.textContent = String(totalPoints);
+  setTrackingStatus(routeWatchId === null ? "Pausada" : "Gravando");
   startPanel.classList.add("hidden");
   routePanel.classList.remove("hidden");
+}
+
+function getDistanceMeters(originPosition, targetPosition) {
+  const earthRadiusMeters = 6371000;
+  const originLatitude = (originPosition.coords.latitude * Math.PI) / 180;
+  const targetLatitude = (targetPosition.coords.latitude * Math.PI) / 180;
+  const latitudeDelta =
+    ((targetPosition.coords.latitude - originPosition.coords.latitude) * Math.PI) / 180;
+  const longitudeDelta =
+    ((targetPosition.coords.longitude - originPosition.coords.longitude) * Math.PI) / 180;
+
+  const haversine =
+    Math.sin(latitudeDelta / 2) * Math.sin(latitudeDelta / 2) +
+    Math.cos(originLatitude) *
+      Math.cos(targetLatitude) *
+      Math.sin(longitudeDelta / 2) *
+      Math.sin(longitudeDelta / 2);
+
+  return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function shouldSaveTrackedPosition(position) {
+  if (!lastTrackedPosition) {
+    lastTrackedPosition = position;
+    return false;
+  }
+
+  const distance = getDistanceMeters(lastTrackedPosition, position);
+  const interval = (position.timestamp || Date.now()) - (lastTrackedPosition.timestamp || Date.now());
+
+  return distance >= TRACKING_MIN_DISTANCE_METERS && interval >= TRACKING_MIN_INTERVAL_MS;
+}
+
+function saveRoutePoint(position, tipoPonto, successMessage = "") {
+  pointSaveQueue = pointSaveQueue.catch(() => {}).then(async () => {
+    if (!activeRoute || activeRoute.status !== "em_andamento") {
+      return;
+    }
+
+    const nextOrder = totalPoints + 1;
+    const { error } = await getSupabaseClient().from("trajeto_pontos").insert({
+      trajeto_id: activeRoute.id,
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      data_hora_registro: toIsoNow(),
+      ordem_ponto: nextOrder,
+      tipo_ponto: tipoPonto,
+      precisao: position.coords.accuracy || null,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    totalPoints = nextOrder;
+    lastTrackedPosition = position;
+    pointCount.textContent = String(totalPoints);
+    saveActiveRoute(activeRoute);
+
+    if (successMessage) {
+      setMessage(successMessage, "success");
+    }
+  });
+
+  return pointSaveQueue;
+}
+
+function startRouteTracking(seedPosition = null) {
+  if (!navigator.geolocation || routeWatchId !== null) {
+    return;
+  }
+
+  if (seedPosition) {
+    lastTrackedPosition = seedPosition;
+  }
+
+  routeWatchId = navigator.geolocation.watchPosition(
+    (position) => {
+      if (!activeRoute || activeRoute.status !== "em_andamento") {
+        stopRouteTracking();
+        return;
+      }
+
+      if (!shouldSaveTrackedPosition(position)) {
+        return;
+      }
+
+      saveRoutePoint(position, "trajeto").catch((error) => {
+        setMessage(`Erro ao gravar trajeto: ${error.message}`, "error");
+      });
+    },
+    (error) => {
+      setTrackingStatus("Pausada");
+      console.warn("Nao foi possivel acompanhar o trajeto.", error);
+    },
+    {
+      enableHighAccuracy: true,
+      maximumAge: 5000,
+      timeout: 20000,
+    }
+  );
+
+  setTrackingStatus("Gravando");
+}
+
+function stopRouteTracking() {
+  if (routeWatchId !== null) {
+    navigator.geolocation.clearWatch(routeWatchId);
+    routeWatchId = null;
+  }
+
+  lastTrackedPosition = null;
+  setTrackingStatus("-");
 }
 
 async function restoreActiveRoute() {
@@ -190,6 +315,7 @@ async function restoreActiveRoute() {
     registerPointButton.disabled = false;
     finishRouteButton.disabled = false;
     showActiveRoute(route);
+    startRouteTracking();
     setMessage("Trajeto ativo restaurado. Voce pode registrar ponto ou finalizar.", "success");
   } catch (error) {
     setMessage(`Nao foi possivel restaurar o trajeto: ${error.message}`, "error");
@@ -197,6 +323,7 @@ async function restoreActiveRoute() {
 }
 
 function markRouteFinished() {
+  stopRouteTracking();
   activeRoute.status = "finalizado";
   routeStatusTitle.textContent = "Finalizado";
   statusPill.textContent = "finalizado";
@@ -215,6 +342,7 @@ function resetForNewRoute() {
   activeCliente.textContent = "-";
   activeSentido.textContent = "-";
   activeLinha.textContent = "-";
+  setTrackingStatus("-");
   routeStatusTitle.textContent = "Em andamento";
   statusPill.textContent = "ativo";
   statusPill.classList.remove("finished");
@@ -283,25 +411,16 @@ startForm.addEventListener("submit", async (event) => {
       throw error;
     }
 
-    const { error: pointError } = await getSupabaseClient().from("trajeto_pontos").insert({
-      trajeto_id: data.id,
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude,
-      data_hora_registro: toIsoNow(),
-      ordem_ponto: 1,
-    });
-
-    if (pointError) {
-      throw pointError;
-    }
-
-    totalPoints = 1;
+    activeRoute = data;
+    totalPoints = 0;
+    await saveRoutePoint(position, "primeiro");
     saveActiveRoute(data);
     routeStatusTitle.textContent = "Em andamento";
     statusPill.textContent = "ativo";
     statusPill.classList.remove("finished");
     showActiveRoute(data);
-    setMessage("Primeiro ponto registrado com sucesso.", "success");
+    startRouteTracking(position);
+    setMessage("Primeiro ponto registrado. Gravacao do trajeto iniciada.", "success");
   } catch (error) {
     const fallbackMessage =
       error.code === 1
@@ -324,24 +443,7 @@ registerPointButton.addEventListener("click", async () => {
     setLoading(registerPointButton, true, "Registrando...");
 
     const position = await getCurrentPosition();
-    const nextOrder = totalPoints + 1;
-
-    const { error } = await getSupabaseClient().from("trajeto_pontos").insert({
-      trajeto_id: activeRoute.id,
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude,
-      data_hora_registro: toIsoNow(),
-      ordem_ponto: nextOrder,
-    });
-
-    if (error) {
-      throw error;
-    }
-
-    totalPoints = nextOrder;
-    saveActiveRoute(activeRoute);
-    pointCount.textContent = String(totalPoints);
-    setMessage("Ponto registrado com sucesso.", "success");
+    await saveRoutePoint(position, "manual", "Ponto registrado com sucesso.");
   } catch (error) {
     const fallbackMessage =
       error.code === 1

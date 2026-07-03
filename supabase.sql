@@ -29,6 +29,8 @@ create table if not exists public.trajeto_pontos (
   longitude double precision not null,
   data_hora_registro timestamptz not null default now(),
   ordem_ponto integer not null,
+  tipo_ponto text null,
+  precisao double precision null,
   created_at timestamptz not null default now(),
   constraint trajeto_pontos_trajeto_id_fkey
     foreign key (trajeto_id)
@@ -38,8 +40,17 @@ create table if not exists public.trajeto_pontos (
   constraint trajeto_pontos_ordem_unique unique (trajeto_id, ordem_ponto)
 );
 
+alter table public.trajeto_pontos
+  add column if not exists tipo_ponto text null;
+
+alter table public.trajeto_pontos
+  add column if not exists precisao double precision null;
+
 create index if not exists idx_trajeto_pontos_trajeto_id
   on public.trajeto_pontos (trajeto_id);
+
+create index if not exists idx_trajeto_pontos_tipo_ponto
+  on public.trajeto_pontos (tipo_ponto);
 
 create index if not exists idx_trajetos_status
   on public.trajetos (status);
