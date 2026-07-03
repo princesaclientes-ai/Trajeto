@@ -20,6 +20,8 @@ const lineFilter = document.querySelector("#lineFilter");
 const statusFilter = document.querySelector("#statusFilter");
 const selectedRouteTitle = document.querySelector("#selectedRouteTitle");
 const selectedRouteStatus = document.querySelector("#selectedRouteStatus");
+const finishSelectedButton = document.querySelector("#finishSelectedButton");
+const deleteSelectedButton = document.querySelector("#deleteSelectedButton");
 const selectedMatricula = document.querySelector("#selectedMatricula");
 const selectedCliente = document.querySelector("#selectedCliente");
 const selectedSentido = document.querySelector("#selectedSentido");
@@ -70,6 +72,10 @@ function formatNumber(value) {
 function setMessage(text, type = "") {
   panelMessage.textContent = text;
   panelMessage.className = `message ${type}`.trim();
+}
+
+function getSelectedRoute() {
+  return routes.find((item) => item.id === selectedRouteId) || null;
 }
 
 function updateLastRefresh() {
@@ -138,6 +144,8 @@ function renderRouteDetails(route, points) {
   selectedStart.textContent = formatDate(route?.data_hora_inicio);
   selectedEnd.textContent = formatDate(route?.data_hora_fim);
   selectedPointCount.textContent = String(points.length);
+  finishSelectedButton.disabled = !route || route.status !== "em_andamento";
+  deleteSelectedButton.disabled = !route;
 
   if (!route) {
     pointsTable.innerHTML =
@@ -198,7 +206,7 @@ async function loadSelectedRouteDetails() {
     return;
   }
 
-  const route = routes.find((item) => item.id === selectedRouteId);
+  const route = getSelectedRoute();
 
   const { data, error } = await supabaseClient
     .from("trajeto_pontos")
@@ -274,6 +282,77 @@ async function selectRoute(routeId) {
   }
 }
 
+async function finishSelectedRoute() {
+  const route = getSelectedRoute();
+
+  if (!route || route.status !== "em_andamento") {
+    setMessage("Selecione um trajeto ativo para finalizar.", "error");
+    return;
+  }
+
+  try {
+    finishSelectedButton.disabled = true;
+
+    const { error } = await supabaseClient
+      .from("trajetos")
+      .update({
+        status: "finalizado",
+        data_hora_fim: new Date().toISOString(),
+      })
+      .eq("id", route.id)
+      .eq("status", "em_andamento");
+
+    if (error) {
+      throw error;
+    }
+
+    setMessage("Trajeto finalizado pelo painel.", "success");
+    await refreshDashboard();
+  } catch (error) {
+    setMessage(`Erro ao finalizar trajeto: ${error.message}`, "error");
+  } finally {
+    finishSelectedButton.disabled = getSelectedRoute()?.status !== "em_andamento";
+  }
+}
+
+async function deleteSelectedRoute() {
+  const route = getSelectedRoute();
+
+  if (!route) {
+    setMessage("Selecione um trajeto para excluir.", "error");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Excluir o trajeto de ${route.cliente} da matricula ${route.matricula_condutor}? Esta acao tambem remove os pontos.`
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    deleteSelectedButton.disabled = true;
+
+    const { error } = await supabaseClient
+      .from("trajetos")
+      .delete()
+      .eq("id", route.id);
+
+    if (error) {
+      throw error;
+    }
+
+    selectedRouteId = null;
+    setMessage("Trajeto excluido pelo painel.", "success");
+    await refreshDashboard();
+  } catch (error) {
+    setMessage(`Erro ao excluir trajeto: ${error.message}`, "error");
+  } finally {
+    deleteSelectedButton.disabled = !getSelectedRoute();
+  }
+}
+
 function syncRefreshTimer() {
   if (refreshTimer) {
     clearInterval(refreshTimer);
@@ -286,6 +365,8 @@ function syncRefreshTimer() {
 }
 
 refreshButton.addEventListener("click", refreshDashboard);
+finishSelectedButton.addEventListener("click", finishSelectedRoute);
+deleteSelectedButton.addEventListener("click", deleteSelectedRoute);
 autoRefreshToggle.addEventListener("change", syncRefreshTimer);
 driverFilter.addEventListener("input", renderRouteList);
 clientFilter.addEventListener("input", renderRouteList);

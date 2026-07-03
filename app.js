@@ -25,6 +25,7 @@ const statusPill = document.querySelector("#statusPill");
 let activeRoute = null;
 let totalPoints = 0;
 const routeOptions = window.ROUTE_OPTIONS || [];
+const ACTIVE_ROUTE_STORAGE_KEY = "trajetoCaptura.activeRouteId";
 
 function uniqueSorted(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
@@ -93,6 +94,31 @@ function getSupabaseClient() {
   return supabaseClient;
 }
 
+function saveActiveRoute(route) {
+  try {
+    localStorage.setItem(ACTIVE_ROUTE_STORAGE_KEY, route.id);
+  } catch (error) {
+    console.warn("Nao foi possivel salvar o trajeto ativo localmente.", error);
+  }
+}
+
+function clearSavedRoute() {
+  try {
+    localStorage.removeItem(ACTIVE_ROUTE_STORAGE_KEY);
+  } catch (error) {
+    console.warn("Nao foi possivel limpar o trajeto ativo localmente.", error);
+  }
+}
+
+function getSavedRouteId() {
+  try {
+    return localStorage.getItem(ACTIVE_ROUTE_STORAGE_KEY);
+  } catch (error) {
+    console.warn("Nao foi possivel ler o trajeto ativo localmente.", error);
+    return null;
+  }
+}
+
 function setMessage(text, type = "") {
   message.textContent = text;
   message.className = `message ${type}`.trim();
@@ -122,6 +148,54 @@ function showActiveRoute(route) {
   routePanel.classList.remove("hidden");
 }
 
+async function restoreActiveRoute() {
+  const savedRouteId = getSavedRouteId();
+
+  if (!savedRouteId || !isSupabaseConfigured()) {
+    return;
+  }
+
+  try {
+    setMessage("Restaurando trajeto ativo...");
+
+    const { data: route, error: routeError } = await getSupabaseClient()
+      .from("trajetos")
+      .select("id, matricula_condutor, cliente, sentido, nome_linha, status, data_hora_inicio, data_hora_fim")
+      .eq("id", savedRouteId)
+      .single();
+
+    if (routeError) {
+      throw routeError;
+    }
+
+    if (!route || route.status !== "em_andamento") {
+      clearSavedRoute();
+      setMessage("");
+      return;
+    }
+
+    const { count, error: countError } = await getSupabaseClient()
+      .from("trajeto_pontos")
+      .select("id", { count: "exact", head: true })
+      .eq("trajeto_id", savedRouteId);
+
+    if (countError) {
+      throw countError;
+    }
+
+    totalPoints = count || 0;
+    routeStatusTitle.textContent = "Em andamento";
+    statusPill.textContent = "ativo";
+    statusPill.classList.remove("finished");
+    registerPointButton.disabled = false;
+    finishRouteButton.disabled = false;
+    showActiveRoute(route);
+    setMessage("Trajeto ativo restaurado. Voce pode registrar ponto ou finalizar.", "success");
+  } catch (error) {
+    setMessage(`Nao foi possivel restaurar o trajeto: ${error.message}`, "error");
+  }
+}
+
 function markRouteFinished() {
   activeRoute.status = "finalizado";
   routeStatusTitle.textContent = "Finalizado";
@@ -132,6 +206,7 @@ function markRouteFinished() {
 }
 
 function resetForNewRoute() {
+  clearSavedRoute();
   activeRoute = null;
   totalPoints = 0;
   startForm.reset();
@@ -221,6 +296,7 @@ startForm.addEventListener("submit", async (event) => {
     }
 
     totalPoints = 1;
+    saveActiveRoute(data);
     routeStatusTitle.textContent = "Em andamento";
     statusPill.textContent = "ativo";
     statusPill.classList.remove("finished");
@@ -263,6 +339,7 @@ registerPointButton.addEventListener("click", async () => {
     }
 
     totalPoints = nextOrder;
+    saveActiveRoute(activeRoute);
     pointCount.textContent = String(totalPoints);
     setMessage("Ponto registrado com sucesso.", "success");
   } catch (error) {
@@ -314,3 +391,4 @@ finishRouteButton.addEventListener("click", async () => {
 clienteInput.addEventListener("change", populateSentidos);
 sentidoInput.addEventListener("change", populateLinhas);
 populateClientes();
+restoreActiveRoute();

@@ -90,6 +90,13 @@ with check (
   and data_hora_fim is not null
 );
 
+drop policy if exists "Permitir excluir trajetos anonimamente" on public.trajetos;
+create policy "Permitir excluir trajetos anonimamente"
+on public.trajetos
+for delete
+to anon
+using (true);
+
 drop policy if exists "Permitir criar pontos anonimamente" on public.trajeto_pontos;
 create policy "Permitir criar pontos anonimamente"
 on public.trajeto_pontos
@@ -108,5 +115,12 @@ drop policy if exists "Permitir consultar pontos anonimamente" on public.trajeto
 create policy "Permitir consultar pontos anonimamente"
 on public.trajeto_pontos
 for select
+to anon
+using (true);
+
+drop policy if exists "Permitir excluir pontos anonimamente" on public.trajeto_pontos;
+create policy "Permitir excluir pontos anonimamente"
+on public.trajeto_pontos
+for delete
 to anon
 using (true);

@@ -48,6 +48,7 @@ http://localhost:5500/painel.html
 ```
 
 No painel, use os filtros de `Matricula`, `Cliente` e `Status` para validar os trajetos por condutor. A rota capturada fica vinculada ao condutor pelo campo `matricula_condutor`.
+O painel tambem permite finalizar um trajeto ativo e excluir um trajeto com seus pontos.
 
 ## Como testar no celular Android
 
@@ -70,6 +71,8 @@ http://192.168.0.10:5500
 7. Toque em `Primeiro ponto`. Esse clique cria o trajeto e grava o ponto 1.
 8. Toque em `Registrar ponto` quantas vezes precisar para gravar os proximos pontos.
 9. Toque em `Finalizar trajeto`. O app limpa os campos e fica pronto para outra rota.
+
+Se o condutor sair do navegador para outro aplicativo e depois voltar, o app tenta restaurar o trajeto ativo automaticamente. Isso permite continuar registrando pontos ou finalizar o trajeto, desde que a aba nao esteja em modo anonimo/privado e o armazenamento local do navegador nao tenha sido limpo.
 
 Observacao: alguns navegadores bloqueiam geolocalizacao fora de HTTPS, mas geralmente permitem em `localhost`. Para testar pelo celular em rede local, se o navegador bloquear a localizacao, publique a pagina em um dominio HTTPS ou use um tunel HTTPS.
 

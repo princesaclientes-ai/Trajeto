@@ -25,7 +25,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -89,6 +90,17 @@ h2 {
 .button.secondary {
   background: #ffffff;
   color: var(--primary);
+}
+
+.button.danger {
+  background: #ffffff;
+  color: var(--danger);
+  border-color: #e8c7c4;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .live-toggle {
@@ -171,6 +183,14 @@ h2 {
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
+}
+
+.detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .route-list {
@@ -375,6 +395,10 @@ tbody tr:last-child td {
 
 .message.error {
   color: var(--danger);
+}
+
+.message.success {
+  color: var(--primary);
 }
 
 @media (max-width: 980px) {
