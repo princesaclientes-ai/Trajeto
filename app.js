@@ -33,6 +33,8 @@ const TRACKING_MIN_INTERVAL_MS = 15000;
 let routeWatchId = null;
 let lastTrackedPosition = null;
 let pointSaveQueue = Promise.resolve();
+let wakeLock = null;
+let wakeLockSupported = "wakeLock" in navigator;
 
 function uniqueSorted(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
@@ -144,6 +146,22 @@ function setTrackingStatus(text) {
   trackingStatus.textContent = text;
 }
 
+function getTrackingStatusText() {
+  if (routeWatchId === null) {
+    return "Pausada";
+  }
+
+  if (!wakeLockSupported) {
+    return "Gravando (mantenha a tela ligada)";
+  }
+
+  return wakeLock ? "Gravando (tela protegida)" : "Gravando";
+}
+
+function refreshTrackingStatus() {
+  setTrackingStatus(getTrackingStatusText());
+}
+
 function toIsoNow() {
   return new Date().toISOString();
 }
@@ -155,7 +173,7 @@ function showActiveRoute(route) {
   activeSentido.textContent = route.sentido || "-";
   activeLinha.textContent = route.nome_linha || "-";
   pointCount.textContent = String(totalPoints);
-  setTrackingStatus(routeWatchId === null ? "Pausada" : "Gravando");
+  refreshTrackingStatus();
   startPanel.classList.add("hidden");
   routePanel.classList.remove("hidden");
 }
@@ -189,6 +207,21 @@ function shouldSaveTrackedPosition(position) {
   const interval = (position.timestamp || Date.now()) - (lastTrackedPosition.timestamp || Date.now());
 
   return distance >= TRACKING_MIN_DISTANCE_METERS && interval >= TRACKING_MIN_INTERVAL_MS;
+}
+
+function handleTrackedPosition(position) {
+  if (!activeRoute || activeRoute.status !== "em_andamento") {
+    stopRouteTracking();
+    return;
+  }
+
+  if (!shouldSaveTrackedPosition(position)) {
+    return;
+  }
+
+  saveRoutePoint(position, "trajeto").catch((error) => {
+    setMessage(`Erro ao gravar trajeto: ${error.message}`, "error");
+  });
 }
 
 function saveRoutePoint(position, tipoPonto, successMessage = "") {
@@ -225,8 +258,73 @@ function saveRoutePoint(position, tipoPonto, successMessage = "") {
   return pointSaveQueue;
 }
 
+async function requestWakeLock() {
+  if (
+    !wakeLockSupported ||
+    wakeLock ||
+    document.visibilityState !== "visible" ||
+    !activeRoute ||
+    activeRoute.status !== "em_andamento"
+  ) {
+    refreshTrackingStatus();
+    return;
+  }
+
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => {
+      wakeLock = null;
+      refreshTrackingStatus();
+    });
+  } catch (error) {
+    wakeLock = null;
+    console.warn("Nao foi possivel manter a tela ativa durante o trajeto.", error);
+  } finally {
+    refreshTrackingStatus();
+  }
+}
+
+async function releaseWakeLock(shouldRefreshStatus = true) {
+  if (!wakeLock) {
+    if (shouldRefreshStatus) {
+      refreshTrackingStatus();
+    }
+    return;
+  }
+
+  const currentWakeLock = wakeLock;
+  wakeLock = null;
+
+  try {
+    await currentWakeLock.release();
+  } catch (error) {
+    console.warn("Nao foi possivel liberar o bloqueio de tela.", error);
+  } finally {
+    if (shouldRefreshStatus) {
+      refreshTrackingStatus();
+    }
+  }
+}
+
+async function resumeRouteTracking() {
+  if (!activeRoute || activeRoute.status !== "em_andamento") {
+    return;
+  }
+
+  startRouteTracking();
+  await requestWakeLock();
+
+  try {
+    const position = await getCurrentPosition();
+    handleTrackedPosition(position);
+  } catch (error) {
+    console.warn("Nao foi possivel capturar ponto ao retomar o trajeto.", error);
+  }
+}
+
 function startRouteTracking(seedPosition = null) {
   if (!navigator.geolocation || routeWatchId !== null) {
+    requestWakeLock();
     return;
   }
 
@@ -235,22 +333,9 @@ function startRouteTracking(seedPosition = null) {
   }
 
   routeWatchId = navigator.geolocation.watchPosition(
-    (position) => {
-      if (!activeRoute || activeRoute.status !== "em_andamento") {
-        stopRouteTracking();
-        return;
-      }
-
-      if (!shouldSaveTrackedPosition(position)) {
-        return;
-      }
-
-      saveRoutePoint(position, "trajeto").catch((error) => {
-        setMessage(`Erro ao gravar trajeto: ${error.message}`, "error");
-      });
-    },
+    handleTrackedPosition,
     (error) => {
-      setTrackingStatus("Pausada");
+      refreshTrackingStatus();
       console.warn("Nao foi possivel acompanhar o trajeto.", error);
     },
     {
@@ -260,7 +345,8 @@ function startRouteTracking(seedPosition = null) {
     }
   );
 
-  setTrackingStatus("Gravando");
+  refreshTrackingStatus();
+  requestWakeLock();
 }
 
 function stopRouteTracking() {
@@ -270,6 +356,7 @@ function stopRouteTracking() {
   }
 
   lastTrackedPosition = null;
+  releaseWakeLock(false);
   setTrackingStatus("-");
 }
 
@@ -463,6 +550,11 @@ finishRouteButton.addEventListener("click", async () => {
 
   try {
     setLoading(finishRouteButton, true, "Finalizando...");
+    setMessage("Capturando ultimo ponto...");
+    stopRouteTracking();
+
+    const finalPosition = await getCurrentPosition();
+    await saveRoutePoint(finalPosition, "manual");
 
     const { data, error } = await getSupabaseClient()
       .from("trajetos")
@@ -485,8 +577,24 @@ finishRouteButton.addEventListener("click", async () => {
     setMessage("Trajeto finalizado com sucesso.", "success");
     resetForNewRoute();
   } catch (error) {
-    setMessage(`Erro ao finalizar trajeto: ${error.message}`, "error");
+    if (activeRoute?.status === "em_andamento") {
+      startRouteTracking();
+    }
+
+    const fallbackMessage =
+      error.code === 1
+        ? "Permissao de localizacao negada. Ative a localizacao do navegador para gravar o ultimo ponto."
+        : error.message;
+    setMessage(`Erro ao finalizar trajeto: ${fallbackMessage}`, "error");
     setLoading(finishRouteButton, false);
+  }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    resumeRouteTracking();
+  } else {
+    refreshTrackingStatus();
   }
 });
 

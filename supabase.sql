@@ -135,3 +135,21 @@ on public.trajeto_pontos
 for delete
 to anon
 using (true);
+
+-- Uso aproximado do banco para exibir no painel.
+-- Ajuste o valor 5 * 1024 * 1024 * 1024 se o limite do seu plano for outro.
+create or replace function public.get_database_usage()
+returns table (
+  used_bytes bigint,
+  limit_bytes bigint
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select
+    pg_database_size(current_database())::bigint as used_bytes,
+    (5::bigint * 1024 * 1024 * 1024) as limit_bytes;
+$$;
+
+grant execute on function public.get_database_usage() to anon, authenticated;

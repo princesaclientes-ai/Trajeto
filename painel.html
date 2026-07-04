@@ -49,8 +49,12 @@
           <strong id="totalDrivers">0</strong>
         </article>
         <article class="stat-card">
-          <span>Pontos do trajeto</span>
+          <span>Visiveis / total</span>
           <strong id="selectedPointCount">0</strong>
+        </article>
+        <article class="stat-card database-card">
+          <span>Supabase</span>
+          <strong id="databaseUsage">-</strong>
         </article>
         <article class="stat-card">
           <span>Ultima atualizacao</span>
@@ -71,7 +75,9 @@
             </label>
             <label>
               <span>Cliente</span>
-              <input id="clientFilter" type="search" placeholder="Filtrar cliente" />
+              <select id="clientFilter">
+                <option value="">Todos os clientes</option>
+              </select>
             </label>
             <label>
               <span>Sentido</span>
@@ -83,7 +89,9 @@
             </label>
             <label>
               <span>Linha</span>
-              <input id="lineFilter" type="search" placeholder="Filtrar linha" />
+              <select id="lineFilter">
+                <option value="">Todas as linhas</option>
+              </select>
             </label>
             <label>
               <span>Status</span>
@@ -141,25 +149,56 @@
             </div>
           </dl>
 
-          <section class="map-panel" aria-label="Mapa do trajeto">
-            <div class="map-header">
-              <div>
-                <p class="eyebrow">Mapa do trajeto</p>
-                <h2>Pontos do condutor</h2>
-              </div>
-              <div class="map-meta">
-                <div class="map-legend" aria-label="Legenda do mapa">
-                  <span><i class="legend-dot first"></i>Primeiro</span>
-                  <span><i class="legend-dot manual"></i>Manual</span>
-                  <span><i class="legend-dot route"></i>Trajeto</span>
-                </div>
-                <span id="mapStatus">Selecione um trajeto</span>
-              </div>
+          <div class="points-header">
+            <div>
+              <p class="eyebrow">Registros capturados</p>
+              <h2>Pontos do trajeto</h2>
             </div>
-            <div id="routeMap" class="route-map"></div>
-          </section>
+            <div class="points-actions">
+              <div class="map-view-toggle" aria-label="Visualizacao dos registros">
+                <label>
+                  <input type="radio" name="mapView" value="ambos" checked />
+                  <span>Ambos</span>
+                </label>
+                <label>
+                  <input type="radio" name="mapView" value="pontos" />
+                  <span>Pontos</span>
+                </label>
+                <label>
+                  <input type="radio" name="mapView" value="trajeto" />
+                  <span>Trajeto</span>
+                </label>
+              </div>
+              <div class="points-totals" aria-label="Totais do trajeto selecionado">
+                <span><strong id="totalVisibleRecords">0</strong> visiveis</span>
+                <span><strong id="totalManualPoints">0</strong> pontos</span>
+                <span><strong id="totalTrackPoints">0</strong> trajeto</span>
+                <span
+                  id="routeStorageUsage"
+                  title="Estimativa do espaco ocupado pelo trajeto selecionado e seus pontos"
+                >
+                  0 B armazenado
+                </span>
+              </div>
+              <span id="mapStatus">Selecione um trajeto</span>
+              <div class="export-actions" aria-label="Exportar trajeto">
+                <button class="export-button" id="exportKmlButton" type="button" disabled>
+                  KML
+                </button>
+                <button class="export-button" id="exportJsonButton" type="button" disabled>
+                  JSON
+                </button>
+                <button class="export-button" id="exportExcelButton" type="button" disabled>
+                  Excel
+                </button>
+              </div>
+              <button class="button secondary" id="openMapButton" type="button" disabled>
+                Abrir mapa
+              </button>
+            </div>
+          </div>
 
-          <div class="table-wrap">
+          <div class="table-wrap" aria-label="Pontos do trajeto">
             <table>
               <thead>
                 <tr>
@@ -183,5 +222,45 @@
 
       <p class="message" id="panelMessage" role="status" aria-live="polite"></p>
     </main>
+
+    <div class="map-modal hidden" id="mapModal" role="dialog" aria-modal="true" aria-labelledby="mapModalTitle">
+      <div class="map-modal-backdrop" id="mapModalBackdrop"></div>
+      <section class="map-dialog" aria-label="Mapa do trajeto">
+        <div class="map-header">
+          <div>
+            <p class="eyebrow">Mapa do trajeto</p>
+            <h2 id="mapModalTitle">Pontos do condutor</h2>
+          </div>
+          <div class="map-meta">
+            <div class="map-view-toggle" aria-label="Visualizacao do mapa">
+              <label>
+                <input type="radio" name="mapViewModal" value="ambos" checked />
+                <span>Ambos</span>
+              </label>
+              <label>
+                <input type="radio" name="mapViewModal" value="pontos" />
+                <span>Pontos</span>
+              </label>
+              <label>
+                <input type="radio" name="mapViewModal" value="trajeto" />
+                <span>Trajeto</span>
+              </label>
+            </div>
+            <div class="map-legend" aria-label="Legenda do mapa">
+              <span><i class="legend-dot first"></i>Primeiro</span>
+              <span><i class="legend-dot manual"></i>Ponto</span>
+              <span><i class="legend-dot route"></i>Trajeto</span>
+            </div>
+            <button class="map-fit-button" id="fitMapButton" type="button" disabled>
+              Enquadrar rota
+            </button>
+            <button class="map-close-button" id="closeMapButton" type="button" aria-label="Fechar mapa">
+              Fechar
+            </button>
+          </div>
+        </div>
+        <div id="routeMap" class="route-map"></div>
+      </section>
+    </div>
   </body>
 </html>

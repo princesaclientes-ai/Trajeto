@@ -77,6 +77,14 @@ Ao tocar em `Primeiro ponto`, o app tambem inicia a gravacao automatica do traje
 
 Se o condutor sair do navegador para outro aplicativo e depois voltar, o app tenta restaurar o trajeto ativo automaticamente. Isso permite continuar registrando pontos ou finalizar o trajeto, desde que a aba nao esteja em modo anonimo/privado e o armazenamento local do navegador nao tenha sido limpo.
 
+## Tela inativa ou bloqueada
+
+Durante um trajeto ativo, o app tenta manter a tela ligada usando a Screen Wake Lock API do navegador. Isso evita que a captura automatica pare quando o aparelho apaga a tela por inatividade.
+
+Essa permissao depende do navegador e normalmente so funciona em contexto seguro: `https://` ou `localhost`. Ao abrir pelo celular usando `http://192.168.x.x:5500`, o navegador pode bloquear esse recurso; nesse caso, mantenha a tela ligada manualmente ou publique o app em HTTPS.
+
+Mesmo com essa protecao, navegadores moveis podem pausar JavaScript e geolocalizacao quando a tela e bloqueada de verdade, quando o usuario troca de aplicativo ou quando o sistema economiza bateria. Para capturar pontos garantidamente com a tela bloqueada e em segundo plano, o caminho mais confiavel e transformar a captura em aplicativo nativo Android/iOS.
+
 Observacao: alguns navegadores bloqueiam geolocalizacao fora de HTTPS, mas geralmente permitem em `localhost`. Para testar pelo celular em rede local, se o navegador bloquear a localizacao, publique a pagina em um dominio HTTPS ou use um tunel HTTPS.
 
 ## Como conferir os dados no Supabase
