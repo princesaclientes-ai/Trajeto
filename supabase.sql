@@ -141,6 +141,7 @@ using (true);
 create or replace function public.get_database_usage()
 returns table (
   used_bytes bigint,
+  app_used_bytes bigint,
   limit_bytes bigint
 )
 language sql
@@ -149,6 +150,10 @@ set search_path = public
 as $$
   select
     pg_database_size(current_database())::bigint as used_bytes,
+    (
+      pg_total_relation_size('public.trajetos'::regclass)
+      + pg_total_relation_size('public.trajeto_pontos'::regclass)
+    )::bigint as app_used_bytes,
     (5::bigint * 1024 * 1024 * 1024) as limit_bytes;
 $$;
 

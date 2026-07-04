@@ -13,6 +13,7 @@ const activeRoutes = document.querySelector("#activeRoutes");
 const totalDrivers = document.querySelector("#totalDrivers");
 const selectedPointCount = document.querySelector("#selectedPointCount");
 const databaseUsage = document.querySelector("#databaseUsage");
+const appDatabaseUsage = document.querySelector("#appDatabaseUsage");
 const lastRefresh = document.querySelector("#lastRefresh");
 const driverFilter = document.querySelector("#driverFilter");
 const clientFilter = document.querySelector("#clientFilter");
@@ -980,6 +981,7 @@ async function loadPointCounts(routeIds) {
 
 async function loadDatabaseUsage() {
   databaseUsage.textContent = "Carregando";
+  appDatabaseUsage.textContent = "Dados app: carregando";
   databaseUsage.title = "Consultando uso do banco no Supabase";
 
   try {
@@ -993,15 +995,18 @@ async function loadDatabaseUsage() {
 
     if (!usage) {
       databaseUsage.textContent = "-";
+      appDatabaseUsage.textContent = "Dados app: -";
       databaseUsage.title = "Supabase nao retornou dados de uso do banco";
       return;
     }
 
     const usedBytes = Number(usage.used_bytes);
     const limitBytes = Number(usage.limit_bytes);
+    const appUsedBytes = Number(usage.app_used_bytes);
 
     if (!Number.isFinite(usedBytes) || !Number.isFinite(limitBytes)) {
       databaseUsage.textContent = "-";
+      appDatabaseUsage.textContent = "Dados app: -";
       databaseUsage.title = "Retorno invalido da funcao get_database_usage";
       return;
     }
@@ -1009,12 +1014,19 @@ async function loadDatabaseUsage() {
     databaseUsage.textContent = `${formatBytes(usage.used_bytes)} / ${formatBytes(
       usage.limit_bytes
     )}`;
+    appDatabaseUsage.textContent = Number.isFinite(appUsedBytes)
+      ? `Dados app: ${formatBytes(appUsedBytes)}`
+      : "Dados app: atualizar SQL";
     databaseUsage.title = `Uso do banco Supabase: ${formatBytes(usedBytes)} de ${formatBytes(limitBytes)}`;
+    appDatabaseUsage.title = Number.isFinite(appUsedBytes)
+      ? "Espaco usado pelas tabelas public.trajetos e public.trajeto_pontos, incluindo indices"
+      : "Atualize a funcao get_database_usage no SQL Editor do Supabase para ver o uso das tabelas do app";
   } catch (error) {
     const message = error?.message || "";
     const missingRpc = error?.code === "PGRST202" || message.toLowerCase().includes("get_database_usage");
 
     databaseUsage.textContent = missingRpc ? "executar SQL" : "indisponivel";
+    appDatabaseUsage.textContent = "Dados app: -";
     databaseUsage.title = missingRpc
       ? "Execute a funcao get_database_usage do arquivo supabase.sql no SQL Editor do Supabase."
       : `Nao foi possivel consultar o uso do banco: ${message}`;

@@ -166,6 +166,15 @@ h2 {
   word-break: normal;
 }
 
+.database-card small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
 .workspace {
   grid-template-columns: 360px minmax(0, 1fr);
   align-items: start;
