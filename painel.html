@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
@@ -17,6 +17,8 @@
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
       crossorigin=""
     ></script>
+    <script src="route-options.js"></script>
+    <script src="conductors.js"></script>
     <script defer src="painel.js"></script>
   </head>
   <body>
@@ -63,26 +65,74 @@
         </article>
       </section>
 
-      <section class="workspace">
+      <section class="tracking-checklist-panel" aria-label="Acompanhamento de trajetos">
+        <div class="tracking-checklist-header">
+          <div>
+            <p class="eyebrow">Acompanhamento</p>
+            <h2>Checklist de clientes e linhas</h2>
+          </div>
+          <span id="checklistStatus">Carregando...</span>
+        </div>
+        <div class="filters">
+          <label>
+            <span>Matricula</span>
+            <input id="driverFilter" type="search" placeholder="Matricula, apelido ou garagem" />
+          </label>
+          <label>
+            <span>Cliente</span>
+            <select id="clientFilter">
+              <option value="">Todos os clientes</option>
+            </select>
+          </label>
+          <label>
+            <span>Sentido</span>
+            <select id="directionFilter">
+              <option value="">Todos</option>
+              <option value="Entrada">Entrada</option>
+              <option value="Saída">Saida</option>
+            </select>
+          </label>
+          <label>
+            <span>Linha</span>
+            <select id="lineFilter">
+              <option value="">Todas as linhas</option>
+            </select>
+          </label>
+          <label>
+            <span>Status</span>
+            <select id="statusFilter">
+              <option value="">Todos</option>
+              <option value="nao_percorrido">Nao percorrido</option>
+              <option value="em_andamento">Em andamento</option>
+              <option value="finalizado">Aguardando validacao</option>
+              <option value="trajeto">Trajeto validado</option>
+            </select>
+          </label>
+        </div>
+        <div class="tracking-checklist" id="trackingChecklist"></div>
+      </section>
+
+      <section class="workspace detail-modal hidden" id="detailModal" aria-label="Detalhes da linha">
+        <div class="detail-modal-backdrop" id="detailModalBackdrop"></div>
         <aside class="route-list-panel" aria-label="Trajetos">
           <div class="panel-title">
             <h2>Trajetos</h2>
             <span id="routeListStatus">Carregando...</span>
           </div>
-          <div class="filters">
+          <div class="filters route-list-legacy-filters">
             <label>
               <span>Matricula</span>
-              <input id="driverFilter" type="search" placeholder="Filtrar condutor" />
+              <input id="driverFilterSidebar" type="search" placeholder="Matricula, apelido ou garagem" />
             </label>
             <label>
               <span>Cliente</span>
-              <select id="clientFilter">
+              <select id="clientFilterSidebar">
                 <option value="">Todos os clientes</option>
               </select>
             </label>
             <label>
               <span>Sentido</span>
-              <select id="directionFilter">
+              <select id="directionFilterSidebar">
                 <option value="">Todos</option>
                 <option value="Entrada">Entrada</option>
                 <option value="Saída">Saida</option>
@@ -90,16 +140,17 @@
             </label>
             <label>
               <span>Linha</span>
-              <select id="lineFilter">
+              <select id="lineFilterSidebar">
                 <option value="">Todas as linhas</option>
               </select>
             </label>
             <label>
               <span>Status</span>
-              <select id="statusFilter">
+              <select id="statusFilterSidebar">
                 <option value="">Todos</option>
-                <option value="em_andamento">Ativos</option>
-                <option value="finalizado">Finalizados</option>
+                <option value="em_andamento">Em andamento</option>
+                <option value="finalizado">Aguardando validacao</option>
+                <option value="trajeto">Trajeto validado</option>
               </select>
             </label>
           </div>
@@ -114,11 +165,17 @@
             </div>
             <div class="detail-actions">
               <span class="status-pill" id="selectedRouteStatus">-</span>
+              <button class="button secondary" id="validateSelectedButton" type="button" disabled>
+                Validar trajeto
+              </button>
               <button class="button secondary" id="finishSelectedButton" type="button" disabled>
                 Finalizar
               </button>
               <button class="button danger" id="deleteSelectedButton" type="button" disabled>
                 Excluir
+              </button>
+              <button class="button secondary" id="closeDetailButton" type="button">
+                Fechar
               </button>
             </div>
           </div>
@@ -127,6 +184,14 @@
             <div>
               <dt>Matricula</dt>
               <dd id="selectedMatricula">-</dd>
+            </div>
+            <div>
+              <dt>Apelido</dt>
+              <dd id="selectedDriverAlias">-</dd>
+            </div>
+            <div>
+              <dt>Garagem</dt>
+              <dd id="selectedDriverGarage">-</dd>
             </div>
             <div>
               <dt>Cliente</dt>
@@ -255,6 +320,9 @@
             <button class="map-fit-button" id="fitMapButton" type="button" disabled>
               Enquadrar rota
             </button>
+            <button class="map-fit-button" id="editMapButton" type="button" disabled>
+              Editar pontos
+            </button>
             <button class="map-close-button" id="closeMapButton" type="button" aria-label="Fechar mapa">
               Fechar
             </button>
@@ -265,3 +333,4 @@
     </div>
   </body>
 </html>
+

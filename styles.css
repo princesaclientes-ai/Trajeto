@@ -64,6 +64,40 @@ select {
   line-height: 1.45;
 }
 
+.quick-guide {
+  margin: -8px 0 18px;
+  border: 1px solid #c9dbf0;
+  border-radius: 8px;
+  padding: 14px;
+  background: #f6faff;
+}
+
+.quick-guide-title {
+  margin: 0 0 10px;
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.quick-guide ol {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 8px;
+}
+
+.quick-guide li {
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.quick-guide strong {
+  color: var(--primary-dark);
+}
+
 .route-header {
   display: flex;
   align-items: flex-start;
@@ -221,6 +255,45 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.route-data dd.tracking-active {
+  color: #08783e;
+  animation: tracking-pulse 1.15s ease-in-out infinite;
+}
+
+.route-reminder {
+  margin: -4px 0 18px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid #c9dbf0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #f6faff;
+}
+
+.route-reminder strong {
+  color: var(--primary);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+}
+
+.route-reminder span {
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+@keyframes tracking-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}
+
 .message {
   min-height: 22px;
   margin: 0;
@@ -237,8 +310,109 @@ h1 {
   color: var(--danger);
 }
 
+.system-version {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.notification {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(20, 32, 51, 0.38);
+}
+
+.notification-card {
+  width: min(100%, 360px);
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.notification-icon {
+  width: 68px;
+  height: 68px;
+  margin: 0 auto 14px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff5d6;
+  color: #9b6500;
+  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.35);
+  animation: alert-pulse 1.15s ease-in-out infinite;
+}
+
+.notification-icon span {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #f59e0b;
+  color: #ffffff;
+  font-size: 1.55rem;
+  font-weight: 900;
+}
+
+.notification-title {
+  display: block;
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 1.2rem;
+  line-height: 1.2;
+}
+
+.notification-card p {
+  margin: 0 0 18px;
+  color: #08783e;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.notification-warning .notification-card p {
+  color: var(--text);
+}
+
+.notification-card button {
+  min-width: 96px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #ffffff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+@keyframes alert-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.35);
+  }
+
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 12px rgba(245, 158, 11, 0);
+  }
+}
+
 .hidden {
-  display: none;
+  display: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-data dd.tracking-active,
+  .notification-icon {
+    animation: none;
+  }
 }
 
 @media (max-width: 420px) {

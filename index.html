@@ -20,6 +20,17 @@
           </p>
         </div>
 
+        <section class="quick-guide" aria-label="Passo a passo da marcacao">
+          <p class="quick-guide-title">Fluxo rapido</p>
+          <ol>
+            <li>Preencha matricula, cliente, sentido e linha.</li>
+            <li>No inicio da rota, toque em <strong>Primeiro ponto</strong>.</li>
+            <li>Mantenha o aparelho ligado e o navegador aberto.</li>
+            <li>Use <strong>Registrar ponto</strong> quando estiver no ponto no decorrer da rota.</li>
+            <li>Ao chegar na fabrica, toque em <strong>Finalizar trajeto</strong>.</li>
+          </ol>
+        </section>
+
         <form id="startForm" class="form-stack">
           <label class="field">
             <span>Matrícula do condutor</span>
@@ -92,7 +103,7 @@
             <dd id="activeLinha">-</dd>
           </div>
           <div>
-            <dt>Pontos registrados</dt>
+            <dt>Pontos manuais registrados</dt>
             <dd id="pointCount">0</dd>
           </div>
           <div>
@@ -100,6 +111,11 @@
             <dd id="trackingStatus">-</dd>
           </div>
         </dl>
+
+        <section class="route-reminder" aria-label="Orientacao durante a rota">
+          <strong>Durante a rota</strong>
+          <span>Mantenha esta tela aberta. Use Registrar ponto quando estiver no ponto durante a rota.</span>
+        </section>
 
         <div class="actions">
           <button class="primary-button" type="button" id="registerPointButton">
@@ -112,6 +128,20 @@
       </section>
 
       <p class="message" id="message" role="status" aria-live="polite"></p>
+      <footer class="system-version">
+        Versao <span id="systemVersion">-</span>
+      </footer>
     </main>
+
+    <div class="notification hidden" id="notification" role="dialog" aria-modal="true" aria-labelledby="notificationText">
+      <div class="notification-card">
+        <div class="notification-icon hidden" id="notificationIcon" aria-hidden="true">
+          <span>!</span>
+        </div>
+        <strong class="notification-title hidden" id="notificationTitle"></strong>
+        <p id="notificationText"></p>
+        <button type="button" id="notificationOkButton">OK</button>
+      </div>
+    </div>
   </body>
 </html>

@@ -3,6 +3,11 @@ const SUPABASE_ANON_KEY = "sb_publishable_gP0qRTSoUiO8-yMq8dgWEQ_1E3MTt7p";
 const REFRESH_INTERVAL_MS = 5000;
 
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const routeOptions = window.ROUTE_OPTIONS || [];
+const conductors = window.CONDUCTOR_BASE || [];
+const conductorByRegistration = new Map(
+  conductors.map((conductor) => [String(conductor.matricula || "").trim(), conductor])
+);
 
 const routeList = document.querySelector("#routeList");
 const routeListStatus = document.querySelector("#routeListStatus");
@@ -22,9 +27,12 @@ const lineFilter = document.querySelector("#lineFilter");
 const statusFilter = document.querySelector("#statusFilter");
 const selectedRouteTitle = document.querySelector("#selectedRouteTitle");
 const selectedRouteStatus = document.querySelector("#selectedRouteStatus");
+const validateSelectedButton = document.querySelector("#validateSelectedButton");
 const finishSelectedButton = document.querySelector("#finishSelectedButton");
 const deleteSelectedButton = document.querySelector("#deleteSelectedButton");
 const selectedMatricula = document.querySelector("#selectedMatricula");
+const selectedDriverAlias = document.querySelector("#selectedDriverAlias");
+const selectedDriverGarage = document.querySelector("#selectedDriverGarage");
 const selectedCliente = document.querySelector("#selectedCliente");
 const selectedSentido = document.querySelector("#selectedSentido");
 const selectedLinha = document.querySelector("#selectedLinha");
@@ -37,6 +45,7 @@ const totalManualPoints = document.querySelector("#totalManualPoints");
 const totalTrackPoints = document.querySelector("#totalTrackPoints");
 const routeStorageUsage = document.querySelector("#routeStorageUsage");
 const fitMapButton = document.querySelector("#fitMapButton");
+const editMapButton = document.querySelector("#editMapButton");
 const openMapButton = document.querySelector("#openMapButton");
 const closeMapButton = document.querySelector("#closeMapButton");
 const mapModal = document.querySelector("#mapModal");
@@ -47,6 +56,11 @@ const exportJsonButton = document.querySelector("#exportJsonButton");
 const exportExcelButton = document.querySelector("#exportExcelButton");
 const mapViewInputs = document.querySelectorAll('input[name="mapView"], input[name="mapViewModal"]');
 const panelMessage = document.querySelector("#panelMessage");
+const trackingChecklist = document.querySelector("#trackingChecklist");
+const checklistStatus = document.querySelector("#checklistStatus");
+const detailModal = document.querySelector("#detailModal");
+const detailModalBackdrop = document.querySelector("#detailModalBackdrop");
+const closeDetailButton = document.querySelector("#closeDetailButton");
 
 let routes = [];
 let pointCountByRouteId = new Map();
@@ -61,6 +75,9 @@ let renderedPointSignature = "";
 let currentMapLatLngs = [];
 let currentRoutePoints = [];
 let isMapModalOpen = false;
+let isDetailModalOpen = false;
+let isEditingMapPoints = false;
+let savingPointId = null;
 
 function getFilteredRoutes() {
   const driverText = driverFilter.value.trim().toLowerCase();
@@ -70,11 +87,11 @@ function getFilteredRoutes() {
   const statusValue = statusFilter.value;
 
   return routes.filter((route) => {
-    const matchesDriver = route.matricula_condutor.toLowerCase().includes(driverText);
+    const matchesDriver = getDriverSearchText(route).includes(driverText);
     const matchesClient = !clientValue || route.cliente === clientValue;
     const matchesDirection = !directionValue || route.sentido === directionValue;
     const matchesLine = !lineValue || route.nome_linha === lineValue;
-    const matchesStatus = !statusValue || route.status === statusValue;
+    const matchesStatus = !statusValue || getRouteStatus(route) === statusValue;
 
     return matchesDriver && matchesClient && matchesDirection && matchesLine && matchesStatus;
   });
@@ -104,17 +121,56 @@ function fillFilterSelect(select, placeholder, values) {
 }
 
 function populateListBoxFilters() {
+  const sourceRoutes = routeOptions.length > 0 ? routeOptions : routes;
+
   fillFilterSelect(
     clientFilter,
     "Todos os clientes",
-    uniqueSorted(routes.map((route) => route.cliente))
+    uniqueSorted(sourceRoutes.map((route) => route.cliente))
   );
 
   fillFilterSelect(
     lineFilter,
     "Todas as linhas",
-    uniqueSorted(routes.map((route) => route.nome_linha))
+    uniqueSorted(sourceRoutes.map((route) => route.nome_linha))
   );
+}
+
+function renderFilteredViews() {
+  renderRouteList();
+  renderTrackingChecklist();
+}
+
+function refreshLineFilterOptions() {
+  const sourceRoutes = routeOptions.length > 0 ? routeOptions : routes;
+  const clientValue = clientFilter.value;
+  const directionValue = directionFilter.value;
+  const matchingOptions = sourceRoutes.filter(
+    (option) =>
+      (!clientValue || option.cliente === clientValue) &&
+      (!directionValue || option.sentido === directionValue)
+  );
+
+  fillFilterSelect(
+    lineFilter,
+    "Todas as linhas",
+    uniqueSorted(matchingOptions.map((option) => option.nome_linha))
+  );
+}
+
+function openDetailModal() {
+  isDetailModalOpen = true;
+  detailModal.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+}
+
+function closeDetailModal() {
+  isDetailModalOpen = false;
+  detailModal.classList.add("hidden");
+
+  if (!isMapModalOpen) {
+    document.body.classList.remove("modal-open");
+  }
 }
 
 function formatDate(value) {
@@ -238,6 +294,56 @@ function getSelectedRoute() {
   return routes.find((item) => item.id === selectedRouteId) || null;
 }
 
+function getConductorInfo(registration) {
+  const key = String(registration || "").trim();
+  return conductorByRegistration.get(key) || null;
+}
+
+function getRouteConductorInfo(route) {
+  return getConductorInfo(route?.matricula_condutor);
+}
+
+function getDriverSearchText(route) {
+  const conductor = getRouteConductorInfo(route);
+
+  return [
+    route?.matricula_condutor,
+    conductor?.apelido,
+    conductor?.garagem,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function formatConductorSummary(route) {
+  const conductor = getRouteConductorInfo(route);
+
+  if (!route) {
+    return "-";
+  }
+
+  if (!conductor) {
+    return `Matricula: ${route.matricula_condutor || "-"}`;
+  }
+
+  return `${route.matricula_condutor || "-"} - ${conductor.apelido || "-"} | ${
+    conductor.garagem || "-"
+  }`;
+}
+
+function getRouteStatus(route) {
+  if (!route) {
+    return "nao_percorrido";
+  }
+
+  if (!route.data_hora_fim) {
+    return "em_andamento";
+  }
+
+  return route.status;
+}
+
 function updateLastRefresh() {
   lastRefresh.textContent = new Intl.DateTimeFormat("pt-BR", {
     hour: "2-digit",
@@ -247,7 +353,25 @@ function updateLastRefresh() {
 }
 
 function getStatusLabel(status) {
-  return status === "finalizado" ? "finalizado" : "ativo";
+  const labels = {
+    em_andamento: "em andamento",
+    finalizado: "aguardando validacao",
+    trajeto: "trajeto validado",
+  };
+
+  return labels[status] || status || "-";
+}
+
+function getStatusClass(status) {
+  if (status === "finalizado") {
+    return "waiting";
+  }
+
+  if (status === "trajeto") {
+    return "validated";
+  }
+
+  return "";
 }
 
 function getPointTypeLabel(type) {
@@ -288,12 +412,34 @@ function getPointTime(point) {
   }).format(new Date(point.data_hora_registro));
 }
 
+function buildExportSummary(route, points) {
+  const trackPoints = getRouteTrackPoints(points);
+  const stopPoints = getRouteStopPoints(points);
+  const conductor = getRouteConductorInfo(route);
+
+  return {
+    cliente: route.cliente || "",
+    linha: route.nome_linha || "",
+    matricula: route.matricula_condutor || "",
+    apelido: conductor?.apelido || "",
+    garagem: conductor?.garagem || "",
+    sentido: route.sentido || "",
+    status: getStatusLabel(getRouteStatus(route)),
+    horario_inicio: formatFileDate(route.data_hora_inicio),
+    horario_fim: formatFileDate(route.data_hora_fim),
+    total_registros: points.length,
+    total_trajeto: trackPoints.length,
+    total_pontos: stopPoints.length,
+  };
+}
+
 function buildJsonExport(route, points) {
   const trackPoints = getRouteTrackPoints(points);
   const stopPoints = getRouteStopPoints(points);
 
   return JSON.stringify(
     {
+      resumo: buildExportSummary(route, points),
       trajeto: {
         quantidade_pontos: trackPoints.length,
         coordenadas: trackPoints.map((point, index) => ({
@@ -320,6 +466,30 @@ function buildKmlExport(route, points) {
   const name = escapeXml(getExportName(route));
   const trackPoints = getRouteTrackPoints(points);
   const stopPoints = getRouteStopPoints(points);
+  const summary = buildExportSummary(route, points);
+  const summaryData = [
+    ["Cliente", summary.cliente],
+    ["Linha", summary.linha],
+    ["Matricula", summary.matricula],
+    ["Apelido", summary.apelido],
+    ["Garagem", summary.garagem],
+    ["Sentido", summary.sentido],
+    ["Status", summary.status],
+    ["Horario de inicio", summary.horario_inicio],
+    ["Horario de fim", summary.horario_fim],
+    ["Total de registros", summary.total_registros],
+    ["Total de trajeto", summary.total_trajeto],
+    ["Total de pontos", summary.total_pontos],
+  ];
+  const summaryDescription = summaryData
+    .map(([label, value]) => `${label}: ${value || "-"}`)
+    .join("\n");
+  const extendedData = summaryData
+    .map(
+      ([label, value]) =>
+        `        <Data name="${escapeXml(label)}"><value>${escapeXml(value)}</value></Data>`
+    )
+    .join("\n");
   const coordinates = trackPoints
     .map((point) => `          ${point.longitude},${point.latitude},0`)
     .join("\n");
@@ -361,6 +531,16 @@ function buildKmlExport(route, points) {
         <scale>1</scale>
       </LabelStyle>
     </Style>
+    <Folder>
+      <name>Resumo</name>
+      <Placemark>
+        <name>Resumo - ${name}</name>
+        <description>${escapeXml(summaryDescription)}</description>
+        <ExtendedData>
+${extendedData}
+        </ExtendedData>
+      </Placemark>
+    </Folder>
     <Folder>
       <name>Trajeto</name>
       <Placemark>
@@ -586,6 +766,22 @@ ${sheets.map((_, index) => `  <Relationship Id="rId${index + 1}" Type="http://sc
 function buildExcelExport(route, points) {
   const trackPoints = getRouteTrackPoints(points);
   const stopPoints = getRouteStopPoints(points);
+  const summary = buildExportSummary(route, points);
+  const summaryRows = [
+    ["Informacao", "Valor"],
+    ["Cliente", summary.cliente],
+    ["Linha", summary.linha],
+    ["Matricula", summary.matricula],
+    ["Apelido", summary.apelido],
+    ["Garagem", summary.garagem],
+    ["Sentido", summary.sentido],
+    ["Status", summary.status],
+    ["Horario de inicio", summary.horario_inicio],
+    ["Horario de fim", summary.horario_fim],
+    ["Total de registros", summary.total_registros],
+    ["Total de trajeto", summary.total_trajeto],
+    ["Total de pontos", summary.total_pontos],
+  ];
   const trackRows = [
     ["Ordem", "Latitude", "Longitude", "Data e hora", "Tipo"],
     ...trackPoints.map((point, index) => [
@@ -609,6 +805,7 @@ function buildExcelExport(route, points) {
   ];
 
   return createXlsxWorkbook([
+    { name: "Resumo", rows: summaryRows },
     { name: "Trajeto", rows: trackRows },
     { name: "Pontos", rows: stopRows },
   ]);
@@ -747,6 +944,52 @@ function fitRouteMap() {
   }, 300);
 }
 
+function setMapEditing(enabled) {
+  isEditingMapPoints = enabled;
+  editMapButton.classList.toggle("active", isEditingMapPoints);
+  editMapButton.textContent = isEditingMapPoints ? "Concluir edicao" : "Editar pontos";
+  renderRouteDetails(getSelectedRoute(), currentRoutePoints);
+}
+
+async function updatePointPosition(point, latLng) {
+  if (!selectedRouteId || savingPointId) {
+    return;
+  }
+
+  const previousLatitude = point.latitude;
+  const previousLongitude = point.longitude;
+
+  point.latitude = latLng.lat;
+  point.longitude = latLng.lng;
+  savingPointId = point.id;
+  setMessage("Salvando ajuste do ponto...", "");
+  renderRouteDetails(getSelectedRoute(), currentRoutePoints);
+
+  try {
+    const { error } = await supabaseClient
+      .from("trajeto_pontos")
+      .update({
+        latitude: latLng.lat,
+        longitude: latLng.lng,
+      })
+      .eq("id", point.id);
+
+    if (error) {
+      throw error;
+    }
+
+    setMessage("Ponto ajustado e trajeto recalculado.", "success");
+    await loadSelectedRouteDetails();
+  } catch (error) {
+    point.latitude = previousLatitude;
+    point.longitude = previousLongitude;
+    setMessage(`Erro ao ajustar ponto: ${error.message}`, "error");
+    renderRouteDetails(getSelectedRoute(), currentRoutePoints);
+  } finally {
+    savingPointId = null;
+  }
+}
+
 function openMapModal() {
   if (openMapButton.disabled) {
     return;
@@ -766,7 +1009,10 @@ function openMapModal() {
 function closeMapModal() {
   isMapModalOpen = false;
   mapModal.classList.add("hidden");
-  document.body.classList.remove("modal-open");
+
+  if (!isDetailModalOpen) {
+    document.body.classList.remove("modal-open");
+  }
 }
 
 function renderRouteMap(points) {
@@ -820,18 +1066,25 @@ function renderRouteMap(points) {
   }
 
   validPoints.forEach((point) => {
-    L.marker([point.latitude, point.longitude], {
+    const marker = L.marker([point.latitude, point.longitude], {
       icon: getMarkerIcon(point),
       title: `Ponto ${point.ordem_ponto}`,
+      draggable: isEditingMapPoints,
     })
       .bindPopup(
         `<strong>Ponto ${point.ordem_ponto}</strong><br>` +
           `Tipo: ${getPointTypeLabel(point.tipo_ponto)}<br>` +
           `Horario: ${formatDate(point.data_hora_registro)}<br>` +
           `Lat: ${formatNumber(point.latitude)}<br>` +
-          `Lng: ${formatNumber(point.longitude)}`
+          `Lng: ${formatNumber(point.longitude)}${
+            isEditingMapPoints ? "<br><strong>Arraste para ajustar</strong>" : ""
+          }`
       )
       .addTo(routeMapLayer);
+
+    if (isEditingMapPoints) {
+      marker.on("dragend", () => updatePointPosition(point, marker.getLatLng()));
+    }
   });
 
   if (routeChanged) {
@@ -868,15 +1121,16 @@ function renderRouteList() {
     button.type = "button";
     button.className = `route-item ${isSelected ? "selected" : ""}`.trim();
     button.dataset.routeId = route.id;
+    const routeStatus = getRouteStatus(route);
     button.innerHTML = `
       <span class="route-item-main">
         <strong>${route.cliente}</strong>
-        <span class="status-pill ${route.status === "finalizado" ? "finished" : ""}">
-          ${getStatusLabel(route.status)}
+        <span class="status-pill ${getStatusClass(routeStatus)}">
+          ${getStatusLabel(routeStatus)}
         </span>
       </span>
       <span class="route-meta">
-        Matricula: ${route.matricula_condutor}<br />
+        Condutor: ${escapeHtml(formatConductorSummary(route))}<br />
         Sentido: ${route.sentido || "-"}<br />
         Linha: ${route.nome_linha || "-"}<br />
         Pontos: ${count} | Inicio: ${formatDate(route.data_hora_inicio)}
@@ -889,6 +1143,138 @@ function renderRouteList() {
   routeList.appendChild(fragment);
 }
 
+function getConfiguredLines() {
+  if (routeOptions.length === 0) {
+    return uniqueSorted(
+      routes.map((route) =>
+        JSON.stringify({
+          cliente: route.cliente,
+          nome_linha: route.nome_linha || "-",
+          sentido: route.sentido || "-",
+        })
+      )
+    ).map((value) => JSON.parse(value));
+  }
+
+  return routeOptions.map((option) => ({
+    cliente: option.cliente,
+    nome_linha: option.nome_linha,
+    sentido: option.sentido,
+  }));
+}
+
+function getRouteForConfiguredLine(option) {
+  return routes.find(
+    (route) =>
+      route.cliente === option.cliente &&
+      (route.nome_linha || "") === (option.nome_linha || "") &&
+      (route.sentido || "") === (option.sentido || "")
+  );
+}
+
+function getConfiguredLinePointCount(option) {
+  const route = getRouteForConfiguredLine(option);
+  return route ? pointCountByRouteId.get(route.id) || 0 : 0;
+}
+
+function getFilteredChecklistLines() {
+  const driverText = driverFilter.value.trim().toLowerCase();
+  const clientValue = clientFilter.value;
+  const directionValue = directionFilter.value;
+  const lineValue = lineFilter.value;
+  const statusValue = statusFilter.value;
+
+  return getConfiguredLines().filter((option) => {
+    const route = getRouteForConfiguredLine(option);
+    const status = getRouteStatus(route);
+    const matchesDriver = !driverText || getDriverSearchText(route).includes(driverText);
+    const matchesClient = !clientValue || option.cliente === clientValue;
+    const matchesDirection = !directionValue || option.sentido === directionValue;
+    const matchesLine = !lineValue || option.nome_linha === lineValue;
+    const matchesStatus = !statusValue || status === statusValue;
+
+    return matchesDriver && matchesClient && matchesDirection && matchesLine && matchesStatus;
+  }).sort((a, b) => {
+    const countDifference = getConfiguredLinePointCount(b) - getConfiguredLinePointCount(a);
+
+    if (countDifference !== 0) {
+      return countDifference;
+    }
+
+    const clientComparison = (a.cliente || "").localeCompare(b.cliente || "", "pt-BR");
+
+    if (clientComparison !== 0) {
+      return clientComparison;
+    }
+
+    return (a.nome_linha || "").localeCompare(b.nome_linha || "", "pt-BR");
+  });
+}
+
+function renderTrackingChecklist() {
+  const totalConfigured = getConfiguredLines().length;
+  const configuredLines = getFilteredChecklistLines();
+  checklistStatus.textContent = `${configuredLines.length}/${totalConfigured} linhas`;
+  trackingChecklist.innerHTML = "";
+
+  if (configuredLines.length === 0) {
+    trackingChecklist.innerHTML =
+      '<p class="empty-cell">Nenhuma linha encontrada para os filtros selecionados.</p>';
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+
+  configuredLines.forEach((option) => {
+    const route = getRouteForConfiguredLine(option);
+    const count = route ? pointCountByRouteId.get(route.id) || 0 : 0;
+    const card = document.createElement("article");
+    const routeStatus = getRouteStatus(route);
+    const statusText = route ? getStatusLabel(routeStatus) : "nao percorrido";
+    const statusClass = route ? getStatusClass(routeStatus) : "missing";
+    const conductorText = route ? formatConductorSummary(route) : "";
+
+    card.className = "checklist-item";
+    card.innerHTML = `
+      <div class="checklist-main">
+        <span class="status-pill ${statusClass}">${statusText}</span>
+        <strong>${option.cliente}</strong>
+        <span>${option.nome_linha || "-"}</span>
+        <small>${option.sentido || "-"} | ${count} registros</small>
+        ${conductorText ? `<small>Condutor: ${escapeHtml(conductorText)}</small>` : ""}
+      </div>
+      <div class="checklist-actions">
+        <button class="button secondary" type="button" data-action="view" ${route ? "" : "disabled"}>
+          Visualizar
+        </button>
+        <button class="button secondary" type="button" data-action="validate" ${
+          routeStatus === "finalizado" ? "" : "disabled"
+        }>
+          Validar
+        </button>
+        <button class="button danger" type="button" data-action="delete" ${route ? "" : "disabled"}>
+          Excluir
+        </button>
+      </div>
+    `;
+
+    card.querySelector('[data-action="view"]')?.addEventListener("click", async () => {
+      await selectRoute(route.id);
+      openDetailModal();
+    });
+    card.querySelector('[data-action="validate"]')?.addEventListener("click", () =>
+      validateRoute(route)
+    );
+    card.querySelector('[data-action="delete"]')?.addEventListener("click", () =>
+      deleteRoute(route)
+    );
+
+    fragment.appendChild(card);
+  });
+
+  trackingChecklist.appendChild(fragment);
+}
+
 function renderRouteDetails(route, points) {
   currentRoutePoints = points;
   const visiblePoints = route ? filterPointsByView(points) : [];
@@ -899,11 +1285,13 @@ function renderRouteDetails(route, points) {
 
   selectedRouteTitle.textContent = route ? route.cliente : "Selecione um trajeto";
   mapModalTitle.textContent = route ? `Mapa - ${route.cliente}` : "Mapa do trajeto";
-  selectedRouteStatus.textContent = route ? getStatusLabel(route.status) : "-";
-  selectedRouteStatus.className = `status-pill ${
-    route?.status === "finalizado" ? "finished" : ""
-  }`.trim();
+  const routeStatus = getRouteStatus(route);
+  selectedRouteStatus.textContent = route ? getStatusLabel(routeStatus) : "-";
+  selectedRouteStatus.className = `status-pill ${getStatusClass(routeStatus)}`.trim();
+  const conductor = getRouteConductorInfo(route);
   selectedMatricula.textContent = route?.matricula_condutor || "-";
+  selectedDriverAlias.textContent = conductor?.apelido || "-";
+  selectedDriverGarage.textContent = conductor?.garagem || "-";
   selectedCliente.textContent = route?.cliente || "-";
   selectedSentido.textContent = route?.sentido || "-";
   selectedLinha.textContent = route?.nome_linha || "-";
@@ -917,9 +1305,11 @@ function renderRouteDetails(route, points) {
   routeStorageUsage.title = route
     ? "Estimativa do espaco ocupado pelo trajeto selecionado e seus pontos carregados"
     : "Selecione um trajeto para ver o espaco estimado";
+  validateSelectedButton.disabled = !route || routeStatus !== "finalizado";
   finishSelectedButton.disabled = !route || route.status !== "em_andamento";
   deleteSelectedButton.disabled = !route;
   openMapButton.disabled = !route || visiblePoints.length === 0;
+  editMapButton.disabled = !route || visiblePoints.length === 0;
   exportKmlButton.disabled = !route || points.length === 0;
   exportJsonButton.disabled = !route || points.length === 0;
   exportExcelButton.disabled = !route || points.length === 0;
@@ -928,12 +1318,14 @@ function renderRouteDetails(route, points) {
   if (!route) {
     pointsTable.innerHTML =
       '<tr><td colspan="6" class="empty-cell">Nenhum trajeto selecionado.</td></tr>';
+    editMapButton.disabled = true;
     return;
   }
 
   if (visiblePoints.length === 0) {
     pointsTable.innerHTML =
       '<tr><td colspan="6" class="empty-cell">Nenhum registro para esta visualizacao.</td></tr>';
+    editMapButton.disabled = true;
     return;
   }
 
@@ -1074,7 +1466,7 @@ async function loadRoutes() {
   await loadPointCounts(routes.map((route) => route.id));
 
   if (!selectedRouteId && routes.length > 0) {
-    const activeRoute = routes.find((route) => route.status === "em_andamento");
+    const activeRoute = routes.find((route) => getRouteStatus(route) === "em_andamento");
     selectedRouteId = activeRoute?.id || routes[0].id;
   }
 
@@ -1084,13 +1476,14 @@ async function loadRoutes() {
 
   totalRoutes.textContent = String(routes.length);
   activeRoutes.textContent = String(
-    routes.filter((route) => route.status === "em_andamento").length
+    routes.filter((route) => getRouteStatus(route) === "em_andamento").length
   );
   totalDrivers.textContent = String(
     new Set(routes.map((route) => route.matricula_condutor)).size
   );
   routeListStatus.textContent = `${getFilteredRoutes().length} exibidos`;
   renderRouteList();
+  renderTrackingChecklist();
   await loadSelectedRouteDetails();
   await loadDatabaseUsage();
   updateLastRefresh();
@@ -1151,9 +1544,44 @@ async function finishSelectedRoute() {
   }
 }
 
-async function deleteSelectedRoute() {
-  const route = getSelectedRoute();
+async function validateRoute(route) {
+  if (!route) {
+    setMessage("Selecione um trajeto para validar.", "error");
+    return;
+  }
 
+  if (route.status !== "finalizado") {
+    setMessage("Somente trajetos aguardando validacao podem ser validados.", "error");
+    return;
+  }
+
+  try {
+    validateSelectedButton.disabled = true;
+
+    const { error } = await supabaseClient
+      .from("trajetos")
+      .update({ status: "trajeto" })
+      .eq("id", route.id)
+      .eq("status", "finalizado");
+
+    if (error) {
+      throw error;
+    }
+
+    setMessage("Trajeto validado com sucesso.", "success");
+    await refreshDashboard();
+  } catch (error) {
+    setMessage(`Erro ao validar trajeto: ${error.message}`, "error");
+  } finally {
+    validateSelectedButton.disabled = getSelectedRoute()?.status !== "finalizado";
+  }
+}
+
+async function validateSelectedRoute() {
+  await validateRoute(getSelectedRoute());
+}
+
+async function deleteRoute(route) {
   if (!route) {
     setMessage("Selecione um trajeto para excluir.", "error");
     return;
@@ -1189,6 +1617,10 @@ async function deleteSelectedRoute() {
   }
 }
 
+async function deleteSelectedRoute() {
+  await deleteRoute(getSelectedRoute());
+}
+
 function syncRefreshTimer() {
   if (refreshTimer) {
     clearInterval(refreshTimer);
@@ -1204,6 +1636,8 @@ refreshButton.addEventListener("click", refreshDashboard);
 openMapButton.addEventListener("click", openMapModal);
 closeMapButton.addEventListener("click", closeMapModal);
 mapModalBackdrop.addEventListener("click", closeMapModal);
+closeDetailButton.addEventListener("click", closeDetailModal);
+detailModalBackdrop.addEventListener("click", closeDetailModal);
 exportKmlButton.addEventListener("click", () => exportSelectedRoute("kml"));
 exportJsonButton.addEventListener("click", () => exportSelectedRoute("json"));
 exportExcelButton.addEventListener("click", () => exportSelectedRoute("excel"));
@@ -1211,6 +1645,7 @@ fitMapButton.addEventListener("click", () => {
   mapUserAdjustedView = false;
   fitRouteMap();
 });
+editMapButton.addEventListener("click", () => setMapEditing(!isEditingMapPoints));
 mapViewInputs.forEach((input) => {
   input.addEventListener("change", () => {
     syncMapViewInputs(input.value);
@@ -1219,16 +1654,25 @@ mapViewInputs.forEach((input) => {
   });
 });
 finishSelectedButton.addEventListener("click", finishSelectedRoute);
+validateSelectedButton.addEventListener("click", validateSelectedRoute);
 deleteSelectedButton.addEventListener("click", deleteSelectedRoute);
 autoRefreshToggle.addEventListener("change", syncRefreshTimer);
-driverFilter.addEventListener("input", renderRouteList);
-clientFilter.addEventListener("change", renderRouteList);
-directionFilter.addEventListener("change", renderRouteList);
-lineFilter.addEventListener("change", renderRouteList);
-statusFilter.addEventListener("change", renderRouteList);
+driverFilter.addEventListener("input", renderFilteredViews);
+clientFilter.addEventListener("change", () => {
+  refreshLineFilterOptions();
+  renderFilteredViews();
+});
+directionFilter.addEventListener("change", () => {
+  refreshLineFilterOptions();
+  renderFilteredViews();
+});
+lineFilter.addEventListener("change", renderFilteredViews);
+statusFilter.addEventListener("change", renderFilteredViews);
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && isMapModalOpen) {
     closeMapModal();
+  } else if (event.key === "Escape" && isDetailModalOpen) {
+    closeDetailModal();
   }
 });
 

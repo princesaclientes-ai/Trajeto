@@ -22,9 +22,16 @@ const trackingStatus = document.querySelector("#trackingStatus");
 const message = document.querySelector("#message");
 const routeStatusTitle = document.querySelector("#routeStatusTitle");
 const statusPill = document.querySelector("#statusPill");
+const notification = document.querySelector("#notification");
+const notificationIcon = document.querySelector("#notificationIcon");
+const notificationTitle = document.querySelector("#notificationTitle");
+const notificationText = document.querySelector("#notificationText");
+const notificationOkButton = document.querySelector("#notificationOkButton");
+const systemVersion = document.querySelector("#systemVersion");
 
 let activeRoute = null;
 let totalPoints = 0;
+let manualPoints = 0;
 const routeOptions = window.ROUTE_OPTIONS || [];
 const ACTIVE_ROUTE_STORAGE_KEY = "trajetoCaptura.activeRouteId";
 const TRACKING_MIN_DISTANCE_METERS = 50;
@@ -35,6 +42,7 @@ let lastTrackedPosition = null;
 let pointSaveQueue = Promise.resolve();
 let wakeLock = null;
 let wakeLockSupported = "wakeLock" in navigator;
+let notificationTimer = null;
 
 function uniqueSorted(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
@@ -133,6 +141,46 @@ function setMessage(text, type = "") {
   message.className = `message ${type}`.trim();
 }
 
+function closeNotification() {
+  window.clearTimeout(notificationTimer);
+  notificationTimer = null;
+  notification.classList.add("hidden");
+}
+
+function showNotification(text, options = {}) {
+  const {
+    title = "",
+    type = "success",
+    autoCloseMs = 4000,
+  } = options;
+
+  window.clearTimeout(notificationTimer);
+  notification.className = `notification notification-${type}`.trim();
+  notificationIcon.classList.toggle("hidden", type !== "warning");
+  notificationTitle.textContent = title;
+  notificationTitle.classList.toggle("hidden", !title);
+  notificationText.textContent = text;
+  notification.dataset.persistent = autoCloseMs ? "false" : "true";
+  notificationOkButton.focus();
+  notificationTimer = autoCloseMs
+    ? window.setTimeout(closeNotification, autoCloseMs)
+    : null;
+}
+
+function updateSystemVersion() {
+  const modifiedAt = new Date(document.lastModified);
+
+  systemVersion.textContent = Number.isNaN(modifiedAt.getTime())
+    ? document.lastModified
+    : new Intl.DateTimeFormat("pt-BR", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(modifiedAt);
+}
+
 function setLoading(button, isLoading, loadingText) {
   if (!button.dataset.defaultText) {
     button.dataset.defaultText = button.textContent.trim();
@@ -144,6 +192,9 @@ function setLoading(button, isLoading, loadingText) {
 
 function setTrackingStatus(text) {
   trackingStatus.textContent = text;
+  const isRecording =
+    routeWatchId !== null && activeRoute?.status === "em_andamento";
+  trackingStatus.classList.toggle("tracking-active", isRecording);
 }
 
 function getTrackingStatusText() {
@@ -172,7 +223,7 @@ function showActiveRoute(route) {
   activeCliente.textContent = route.cliente;
   activeSentido.textContent = route.sentido || "-";
   activeLinha.textContent = route.nome_linha || "-";
-  pointCount.textContent = String(totalPoints);
+  pointCount.textContent = String(manualPoints);
   refreshTrackingStatus();
   startPanel.classList.add("hidden");
   routePanel.classList.remove("hidden");
@@ -246,12 +297,16 @@ function saveRoutePoint(position, tipoPonto, successMessage = "") {
     }
 
     totalPoints = nextOrder;
+    if (tipoPonto === "primeiro" || tipoPonto === "manual") {
+      manualPoints += 1;
+    }
     lastTrackedPosition = position;
-    pointCount.textContent = String(totalPoints);
+    pointCount.textContent = String(manualPoints);
     saveActiveRoute(activeRoute);
 
     if (successMessage) {
-      setMessage(successMessage, "success");
+      setMessage("");
+      showNotification(successMessage);
     }
   });
 
@@ -395,7 +450,18 @@ async function restoreActiveRoute() {
       throw countError;
     }
 
+    const { count: manualCount, error: manualCountError } = await getSupabaseClient()
+      .from("trajeto_pontos")
+      .select("id", { count: "exact", head: true })
+      .eq("trajeto_id", savedRouteId)
+      .in("tipo_ponto", ["primeiro", "manual"]);
+
+    if (manualCountError) {
+      throw manualCountError;
+    }
+
     totalPoints = count || 0;
+    manualPoints = manualCount || 0;
     routeStatusTitle.textContent = "Em andamento";
     statusPill.textContent = "ativo";
     statusPill.classList.remove("finished");
@@ -423,6 +489,7 @@ function resetForNewRoute() {
   clearSavedRoute();
   activeRoute = null;
   totalPoints = 0;
+  manualPoints = 0;
   startForm.reset();
   pointCount.textContent = "0";
   activeMatricula.textContent = "-";
@@ -500,6 +567,7 @@ startForm.addEventListener("submit", async (event) => {
 
     activeRoute = data;
     totalPoints = 0;
+    manualPoints = 0;
     await saveRoutePoint(position, "primeiro");
     saveActiveRoute(data);
     routeStatusTitle.textContent = "Em andamento";
@@ -507,7 +575,15 @@ startForm.addEventListener("submit", async (event) => {
     statusPill.classList.remove("finished");
     showActiveRoute(data);
     startRouteTracking(position);
-    setMessage("Primeiro ponto registrado. Gravacao do trajeto iniciada.", "success");
+    setMessage("");
+    showNotification(
+      "Por favor, nao desligue o aparelho e nao deixe a tela em modo inativo. Mantenha o navegador aberto ate finalizar o trajeto.",
+      {
+        title: "Trajeto gravando",
+        type: "warning",
+        autoCloseMs: 0,
+      }
+    );
   } catch (error) {
     const fallbackMessage =
       error.code === 1
@@ -574,8 +650,9 @@ finishRouteButton.addEventListener("click", async () => {
     activeRoute = data;
     setLoading(finishRouteButton, false);
     markRouteFinished();
-    setMessage("Trajeto finalizado com sucesso.", "success");
     resetForNewRoute();
+    setMessage("");
+    showNotification("Trajeto finalizado com sucesso.");
   } catch (error) {
     if (activeRoute?.status === "em_andamento") {
       startRouteTracking();
@@ -600,5 +677,12 @@ document.addEventListener("visibilitychange", () => {
 
 clienteInput.addEventListener("change", populateSentidos);
 sentidoInput.addEventListener("change", populateLinhas);
+notificationOkButton.addEventListener("click", closeNotification);
+notification.addEventListener("click", (event) => {
+  if (event.target === notification && notification.dataset.persistent !== "true") {
+    closeNotification();
+  }
+});
 populateClientes();
+updateSystemVersion();
 restoreActiveRoute();

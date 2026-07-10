@@ -132,6 +132,7 @@ h2 {
 }
 
 .stat-card,
+.tracking-checklist-panel,
 .route-list-panel,
 .detail-panel {
   background: var(--panel);
@@ -176,8 +177,27 @@ h2 {
 }
 
 .workspace {
-  grid-template-columns: 360px minmax(0, 1fr);
-  align-items: start;
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  padding: 24px;
+}
+
+.workspace.hidden {
+  display: none;
+}
+
+.detail-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(12, 22, 18, 0.58);
+}
+
+.route-list-panel {
+  display: none;
 }
 
 .route-list-panel {
@@ -186,13 +206,18 @@ h2 {
 }
 
 .route-list-panel {
-  display: flex;
+  display: none;
   flex-direction: column;
   overflow: hidden;
 }
 
 .detail-panel {
-  overflow: visible;
+  position: relative;
+  z-index: 1;
+  width: min(1280px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -251,6 +276,17 @@ h2 {
   display: grid;
   gap: 10px;
   padding: 12px 10px 0;
+}
+
+.tracking-checklist-panel .filters {
+  grid-template-columns: minmax(160px, 1.1fr) repeat(4, minmax(150px, 1fr));
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfdfc;
+}
+
+.route-list-legacy-filters {
+  display: none;
 }
 
 .filters label {
@@ -329,6 +365,110 @@ h2 {
 .status-pill.finished {
   background: rgba(168, 59, 53, 0.12);
   color: var(--danger);
+}
+
+.status-pill.waiting {
+  background: rgba(183, 121, 31, 0.14);
+  color: var(--warning);
+}
+
+.status-pill.validated {
+  background: rgba(17, 97, 73, 0.12);
+  color: var(--primary);
+}
+
+.status-pill.missing {
+  background: #edf2ef;
+  color: var(--muted);
+}
+
+.tracking-checklist-panel {
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+
+.tracking-checklist-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tracking-checklist-header span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.tracking-checklist {
+  max-height: clamp(520px, 68vh, 820px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.checklist-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfdfc;
+}
+
+.checklist-main {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.checklist-main .status-pill {
+  justify-self: start;
+}
+
+.checklist-main strong,
+.checklist-main span,
+.checklist-main small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.checklist-main strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.checklist-main span,
+.checklist-main small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.checklist-main small {
+  font-size: 0.78rem;
+}
+
+.checklist-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.checklist-actions .button {
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 0.78rem;
 }
 
 .detail-grid {
@@ -595,6 +735,12 @@ h2 {
 
 .map-fit-button:hover {
   border-color: var(--primary);
+}
+
+.map-fit-button.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
 }
 
 .export-button:hover {
@@ -905,6 +1051,8 @@ td:nth-child(6) {
   .topbar,
   .workspace,
   .stats-grid,
+  .tracking-checklist,
+  .tracking-checklist-panel .filters,
   .detail-grid {
     grid-template-columns: 1fr;
   }

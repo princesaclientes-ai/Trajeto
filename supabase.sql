@@ -13,8 +13,15 @@ create table if not exists public.trajetos (
   data_hora_inicio timestamptz not null default now(),
   data_hora_fim timestamptz null,
   created_at timestamptz not null default now(),
-  constraint trajetos_status_check check (status in ('em_andamento', 'finalizado'))
+  constraint trajetos_status_check check (status in ('em_andamento', 'finalizado', 'trajeto'))
 );
+
+alter table public.trajetos
+  drop constraint if exists trajetos_status_check;
+
+alter table public.trajetos
+  add constraint trajetos_status_check
+  check (status in ('em_andamento', 'finalizado', 'trajeto'));
 
 alter table public.trajetos
   add column if not exists sentido text null;
@@ -91,14 +98,21 @@ to anon
 using (true);
 
 drop policy if exists "Permitir finalizar trajetos anonimamente" on public.trajetos;
-create policy "Permitir finalizar trajetos anonimamente"
+drop policy if exists "Permitir atualizar trajetos anonimamente" on public.trajetos;
+create policy "Permitir atualizar trajetos anonimamente"
 on public.trajetos
 for update
 to anon
-using (status = 'em_andamento')
+using (status in ('em_andamento', 'finalizado', 'trajeto'))
 with check (
-  status = 'finalizado'
-  and data_hora_fim is not null
+  (
+    status = 'em_andamento'
+    and data_hora_fim is null
+  )
+  or (
+    status in ('finalizado', 'trajeto')
+    and data_hora_fim is not null
+  )
 );
 
 drop policy if exists "Permitir excluir trajetos anonimamente" on public.trajetos;
@@ -136,8 +150,24 @@ for delete
 to anon
 using (true);
 
+drop policy if exists "Permitir editar pontos anonimamente" on public.trajeto_pontos;
+create policy "Permitir editar pontos anonimamente"
+on public.trajeto_pontos
+for update
+to anon
+using (true)
+with check (
+  exists (
+    select 1
+    from public.trajetos t
+    where t.id = trajeto_id
+  )
+);
+
 -- Uso aproximado do banco para exibir no painel.
 -- Ajuste o valor 5 * 1024 * 1024 * 1024 se o limite do seu plano for outro.
+drop function if exists public.get_database_usage();
+
 create or replace function public.get_database_usage()
 returns table (
   used_bytes bigint,
