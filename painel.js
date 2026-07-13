@@ -1,6 +1,8 @@
 const SUPABASE_URL = "https://tytiezeamgwmqrrygoia.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_gP0qRTSoUiO8-yMq8dgWEQ_1E3MTt7p";
 const REFRESH_INTERVAL_MS = 5000;
+const ROUTING_CHUNK_SIZE = 25;
+const ROUTING_SERVICE_URL = "https://router.project-osrm.org/route/v1/driving";
 
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const routeOptions = window.ROUTE_OPTIONS || [];
@@ -68,6 +70,8 @@ let selectedRouteId = null;
 let refreshTimer = null;
 let routeMap = null;
 let routeMapLayer = null;
+let routeLineLayer = null;
+let routeLineSignature = "";
 let mapAutoFitting = false;
 let mapUserAdjustedView = false;
 let renderedMapRouteId = null;
@@ -78,6 +82,9 @@ let isMapModalOpen = false;
 let isDetailModalOpen = false;
 let isEditingMapPoints = false;
 let savingPointId = null;
+let routeLineRequestId = 0;
+let suppressMapClickUntil = 0;
+const routedLineCache = new Map();
 
 function getFilteredRoutes() {
   const driverText = driverFilter.value.trim().toLowerCase();
@@ -288,6 +295,26 @@ function downloadBlobFile(filename, content, mimeType) {
 function setMessage(text, type = "") {
   panelMessage.textContent = text;
   panelMessage.className = `message ${type}`.trim();
+}
+
+function getPointEditErrorMessage(error, action) {
+  const message = error?.message || "";
+  const lowerMessage = message.toLowerCase();
+  const needsSql =
+    error?.code === "42501" ||
+    lowerMessage.includes("row-level security") ||
+    lowerMessage.includes("violates row-level security") ||
+    lowerMessage.includes("permission denied");
+
+  if (error?.code === "23505" || error?.code === "409" || lowerMessage.includes("duplicate")) {
+    return `Erro ao ${action}: conflito de sequencia no banco. Atualize o painel e tente novamente.`;
+  }
+
+  if (needsSql) {
+    return `Erro ao ${action} ponto: execute no Supabase as politicas de insert/update/delete para trajeto_pontos.`;
+  }
+
+  return `Erro ao ${action} ponto: ${message}`;
 }
 
 function getSelectedRoute() {
@@ -899,6 +926,16 @@ function ensureRouteMap() {
     }
   });
 
+  routeMap.on("click", (event) => {
+    if (Date.now() < suppressMapClickUntil) {
+      return;
+    }
+
+    if (isEditingMapPoints) {
+      insertTrackPointAt(event.latlng);
+    }
+  });
+
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: "&copy; OpenStreetMap",
@@ -926,6 +963,200 @@ function getPointSignature(points) {
     .join("|")}`;
 }
 
+function getOrderedValidPoints(points) {
+  return [...points]
+    .filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude))
+    .sort((a, b) => a.ordem_ponto - b.ordem_ponto);
+}
+
+function getPointDistanceToSegment(point, segmentStart, segmentEnd) {
+  const lat = point.lat;
+  const lng = point.lng;
+  const startLat = segmentStart.latitude;
+  const startLng = segmentStart.longitude;
+  const endLat = segmentEnd.latitude;
+  const endLng = segmentEnd.longitude;
+  const latDelta = endLat - startLat;
+  const lngDelta = endLng - startLng;
+  const lengthSquared = latDelta * latDelta + lngDelta * lngDelta;
+
+  if (lengthSquared === 0) {
+    return Math.hypot(lat - startLat, lng - startLng);
+  }
+
+  const ratio = Math.max(
+    0,
+    Math.min(1, ((lat - startLat) * latDelta + (lng - startLng) * lngDelta) / lengthSquared)
+  );
+  const projectedLat = startLat + ratio * latDelta;
+  const projectedLng = startLng + ratio * lngDelta;
+
+  return Math.hypot(lat - projectedLat, lng - projectedLng);
+}
+
+function getInsertionOrder(latLng) {
+  const orderedPoints = getOrderedValidPoints(currentRoutePoints);
+
+  if (orderedPoints.length === 0) {
+    return 1;
+  }
+
+  if (orderedPoints.length === 1) {
+    return orderedPoints[0].ordem_ponto + 1;
+  }
+
+  let closestIndex = 0;
+  let closestDistance = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < orderedPoints.length - 1; index += 1) {
+    const distance = getPointDistanceToSegment(latLng, orderedPoints[index], orderedPoints[index + 1]);
+
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestIndex = index;
+    }
+  }
+
+  return orderedPoints[closestIndex].ordem_ponto + 1;
+}
+
+function addEditableRouteClick(polyline) {
+  if (!isEditingMapPoints) {
+    return;
+  }
+
+  polyline.on("click", (event) => {
+    if (event.originalEvent) {
+      L.DomEvent.stop(event.originalEvent);
+    }
+
+    insertTrackPointAt(event.latlng);
+  });
+}
+
+function drawRouteLine(latLngs, options = {}) {
+  const nextSignature =
+    options.signature ||
+    `${isEditingMapPoints ? "edit" : "view"}::${latLngs
+      .map(([lat, lng]) => `${lat},${lng}`)
+      .join("|")}`;
+
+  if (routeLineLayer && routeLineSignature === nextSignature) {
+    return routeLineLayer;
+  }
+
+  if (routeLineLayer) {
+    routeMap.removeLayer(routeLineLayer);
+    routeLineLayer = null;
+  }
+
+  const polyline = L.polyline(latLngs, {
+    color: options.color || "#1264c8",
+    weight: options.weight || 4,
+    opacity: options.opacity ?? 0.85,
+    dashArray: options.dashArray || null,
+    className: isEditingMapPoints ? "editable-route-line" : "",
+  }).addTo(routeMap);
+
+  addEditableRouteClick(polyline);
+  routeLineLayer = polyline;
+  routeLineSignature = nextSignature;
+  return polyline;
+}
+
+function getRoutePointChunks(points) {
+  const chunks = [];
+
+  for (let index = 0; index < points.length - 1; index += ROUTING_CHUNK_SIZE - 1) {
+    chunks.push(points.slice(index, Math.min(points.length, index + ROUTING_CHUNK_SIZE)));
+  }
+
+  return chunks.filter((chunk) => chunk.length > 1);
+}
+
+async function fetchRoutedLatLngs(points) {
+  const chunks = getRoutePointChunks(points);
+  const routedLatLngs = [];
+
+  for (const chunk of chunks) {
+    const coordinates = chunk
+      .map((point) => `${point.longitude},${point.latitude}`)
+      .join(";");
+    const url = `${ROUTING_SERVICE_URL}/${coordinates}?overview=full&geometries=geojson&continue_straight=false`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error("servico de rota indisponivel");
+    }
+
+    const data = await response.json();
+    const route = data?.routes?.[0];
+
+    if (!route?.geometry?.coordinates?.length) {
+      throw new Error("rota nao encontrada");
+    }
+
+    const chunkLatLngs = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+
+    if (routedLatLngs.length > 0) {
+      chunkLatLngs.shift();
+    }
+
+    routedLatLngs.push(...chunkLatLngs);
+  }
+
+  return routedLatLngs;
+}
+
+async function drawRoutedLine(validPoints, fallbackLatLngs, requestId) {
+  if (validPoints.length < 2 || getMapViewMode() === "pontos" || isEditingMapPoints) {
+    return;
+  }
+
+  const cacheKey = getPointSignature(validPoints);
+  const cachedLatLngs = routedLineCache.get(cacheKey);
+
+  if (cachedLatLngs?.length > 1) {
+    currentMapLatLngs = cachedLatLngs;
+    drawRouteLine(cachedLatLngs, {
+      color: "#116149",
+      weight: 5,
+      opacity: 0.9,
+      signature: `${isEditingMapPoints ? "edit" : "view"}::routed::${cacheKey}`,
+    });
+    mapStatus.textContent = `${validPoints.length} ${getMapViewLabel()} no mapa - rota por ruas`;
+    return;
+  }
+
+  try {
+    mapStatus.textContent = `${validPoints.length} ${getMapViewLabel()} no mapa - calculando rota`;
+    const routedLatLngs = await fetchRoutedLatLngs(validPoints);
+
+    if (requestId !== routeLineRequestId || !routeMapLayer || routedLatLngs.length < 2) {
+      return;
+    }
+
+    routedLineCache.set(cacheKey, routedLatLngs);
+    currentMapLatLngs = routedLatLngs;
+    drawRouteLine(routedLatLngs, {
+      color: "#116149",
+      weight: 5,
+      opacity: 0.9,
+      signature: `${isEditingMapPoints ? "edit" : "view"}::routed::${cacheKey}`,
+    });
+
+    if (isMapModalOpen && !mapUserAdjustedView) {
+      fitRouteMap();
+    }
+
+    mapStatus.textContent = `${validPoints.length} ${getMapViewLabel()} no mapa - rota por ruas`;
+  } catch (error) {
+    currentMapLatLngs = fallbackLatLngs;
+    mapStatus.textContent = `${validPoints.length} ${getMapViewLabel()} no mapa - linha simples`;
+    console.warn("Nao foi possivel calcular a rota por ruas.", error);
+  }
+}
+
 function fitRouteMap() {
   const map = ensureRouteMap();
 
@@ -948,6 +1179,13 @@ function setMapEditing(enabled) {
   isEditingMapPoints = enabled;
   editMapButton.classList.toggle("active", isEditingMapPoints);
   editMapButton.textContent = isEditingMapPoints ? "Concluir edicao" : "Editar pontos";
+  syncRefreshTimer();
+  setMessage(
+    isEditingMapPoints
+      ? "Edicao ativa: arraste pontos existentes ou clique no mapa para inserir ponto de trajeto."
+      : "",
+    ""
+  );
   renderRouteDetails(getSelectedRoute(), currentRoutePoints);
 }
 
@@ -962,20 +1200,26 @@ async function updatePointPosition(point, latLng) {
   point.latitude = latLng.lat;
   point.longitude = latLng.lng;
   savingPointId = point.id;
+  routedLineCache.clear();
   setMessage("Salvando ajuste do ponto...", "");
-  renderRouteDetails(getSelectedRoute(), currentRoutePoints);
 
   try {
-    const { error } = await supabaseClient
+    const { data, error } = await supabaseClient
       .from("trajeto_pontos")
       .update({
         latitude: latLng.lat,
         longitude: latLng.lng,
       })
-      .eq("id", point.id);
+      .eq("id", point.id)
+      .select("id, latitude, longitude")
+      .single();
 
     if (error) {
       throw error;
+    }
+
+    if (!data?.id) {
+      throw new Error("o Supabase nao confirmou a alteracao do ponto");
     }
 
     setMessage("Ponto ajustado e trajeto recalculado.", "success");
@@ -983,10 +1227,226 @@ async function updatePointPosition(point, latLng) {
   } catch (error) {
     point.latitude = previousLatitude;
     point.longitude = previousLongitude;
-    setMessage(`Erro ao ajustar ponto: ${error.message}`, "error");
+    setMessage(getPointEditErrorMessage(error, "ajustar"), "error");
     renderRouteDetails(getSelectedRoute(), currentRoutePoints);
   } finally {
     savingPointId = null;
+    syncRefreshTimer();
+  }
+}
+
+async function updatePointOrder(pointId, ordemPonto) {
+  const { data, error } = await supabaseClient
+    .from("trajeto_pontos")
+    .update({ ordem_ponto: ordemPonto })
+    .eq("id", pointId)
+    .select("id, ordem_ponto")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data?.id || Number(data.ordem_ponto) !== Number(ordemPonto)) {
+    throw new Error("o Supabase nao confirmou a atualizacao da ordem do ponto");
+  }
+}
+
+function getSafeTemporaryOrderBase(points, extraCount = 0) {
+  const maxOrder = Math.max(
+    0,
+    ...getOrderedValidPoints(currentRoutePoints).map((point) => Number(point.ordem_ponto) || 0),
+    ...points.map((point) => Number(point?.ordem_ponto) || 0)
+  );
+
+  return maxOrder + extraCount + 100000;
+}
+
+async function renumberRoutePointsWithInsertedPoint(insertedPointId, newOrder) {
+  const orderedPoints = getOrderedValidPoints(currentRoutePoints);
+  const boundedOrder = Math.max(1, Math.min(newOrder, orderedPoints.length + 1));
+  const orderedIds = orderedPoints.map((point) => point.id);
+
+  orderedIds.splice(boundedOrder - 1, 0, insertedPointId);
+
+  const tempBaseOrder = getSafeTemporaryOrderBase(orderedPoints, orderedIds.length);
+
+  for (let index = 0; index < orderedIds.length; index += 1) {
+    await updatePointOrder(orderedIds[index], tempBaseOrder + index);
+  }
+
+  for (let index = 0; index < orderedIds.length; index += 1) {
+    await updatePointOrder(orderedIds[index], index + 1);
+  }
+}
+
+async function renumberExistingRoutePoints(points) {
+  const orderedIds = points
+    .filter((point) => point?.id)
+    .map((point) => point.id);
+  const tempBaseOrder = getSafeTemporaryOrderBase(points, orderedIds.length);
+
+  for (let index = 0; index < orderedIds.length; index += 1) {
+    await updatePointOrder(orderedIds[index], tempBaseOrder + index);
+  }
+
+  for (let index = 0; index < orderedIds.length; index += 1) {
+    await updatePointOrder(orderedIds[index], index + 1);
+  }
+}
+
+async function movePointToOrder(point, targetOrder) {
+  if (!point || savingPointId) {
+    return;
+  }
+
+  const orderedPoints = getOrderedValidPoints(currentRoutePoints);
+  const pointIndex = orderedPoints.findIndex((item) => item.id === point.id);
+
+  if (pointIndex === -1) {
+    setMessage("Ponto nao encontrado na sequencia atual.", "error");
+    return;
+  }
+
+  const boundedOrder = Math.max(1, Math.min(Number(targetOrder) || point.ordem_ponto, orderedPoints.length));
+  const nextOrder = [...orderedPoints];
+  const [movedPoint] = nextOrder.splice(pointIndex, 1);
+
+  nextOrder.splice(boundedOrder - 1, 0, movedPoint);
+
+  savingPointId = point.id;
+  routedLineCache.clear();
+  syncRefreshTimer();
+  setMessage("Atualizando ID do ponto...", "");
+
+  try {
+    await renumberExistingRoutePoints(nextOrder);
+    setMessage("ID do ponto atualizado e trajeto recalculado.", "success");
+    await loadSelectedRouteDetails();
+  } catch (error) {
+    setMessage(getPointEditErrorMessage(error, "alterar ID do ponto"), "error");
+    await loadSelectedRouteDetails();
+  } finally {
+    savingPointId = null;
+    syncRefreshTimer();
+  }
+}
+
+async function insertTrackPointAt(latLng) {
+  if (!selectedRouteId || savingPointId) {
+    return;
+  }
+
+  const confirmed = window.confirm("Inserir um ponto de trajeto nesta posicao?");
+
+  if (!confirmed) {
+    return;
+  }
+
+  const orderedPoints = getOrderedValidPoints(currentRoutePoints);
+  const newOrder = getInsertionOrder(latLng);
+  const newPointTemporaryOrder =
+    getSafeTemporaryOrderBase(orderedPoints, 1);
+
+  savingPointId = "novo";
+  routedLineCache.clear();
+  syncRefreshTimer();
+  setMessage("Inserindo ponto de trajeto...", "");
+
+  try {
+    const { data: insertedPoint, error: insertError } = await supabaseClient
+      .from("trajeto_pontos")
+      .insert({
+        trajeto_id: selectedRouteId,
+        latitude: latLng.lat,
+        longitude: latLng.lng,
+        data_hora_registro: new Date().toISOString(),
+        ordem_ponto: newPointTemporaryOrder,
+        tipo_ponto: "trajeto",
+        precisao: null,
+      })
+      .select("id")
+      .single();
+
+    if (insertError) {
+      throw insertError;
+    }
+
+    await renumberRoutePointsWithInsertedPoint(insertedPoint.id, newOrder);
+
+    setMessage("Ponto de trajeto inserido e rota recalculada.", "success");
+    await loadSelectedRouteDetails();
+  } catch (error) {
+    const message = error?.message || "";
+    const needsSql =
+      error?.code === "42501" ||
+      message.toLowerCase().includes("row-level security") ||
+      message.toLowerCase().includes("violates row-level security");
+
+    setMessage(
+      needsSql
+        ? "Erro ao inserir ponto: execute no Supabase a politica de insert para trajeto_pontos."
+        : `Erro ao inserir ponto: ${message}`,
+      "error"
+    );
+    await loadSelectedRouteDetails();
+  } finally {
+    savingPointId = null;
+    syncRefreshTimer();
+  }
+}
+
+async function deleteTrackPoint(point) {
+  if (!point || savingPointId) {
+    return;
+  }
+
+  if (point.tipo_ponto !== "trajeto") {
+    setMessage("Somente pontos de trajeto podem ser excluidos no mapa.", "error");
+    return;
+  }
+
+  const pointType = getPointTypeLabel(point.tipo_ponto);
+  const confirmed = window.confirm(
+    `Excluir o ponto ${point.ordem_ponto} (${pointType})? A sequencia sera reorganizada.`
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  savingPointId = point.id;
+  routedLineCache.clear();
+  syncRefreshTimer();
+  setMessage("Excluindo ponto...", "");
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("trajeto_pontos")
+      .delete()
+      .eq("id", point.id)
+      .select("id")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data?.id) {
+      throw new Error("o Supabase nao confirmou a exclusao do ponto");
+    }
+
+    await renumberExistingRoutePoints(
+      getOrderedValidPoints(currentRoutePoints).filter((item) => item.id !== point.id)
+    );
+    setMessage("Ponto excluido e sequencia reorganizada.", "success");
+    await loadSelectedRouteDetails();
+  } catch (error) {
+    setMessage(getPointEditErrorMessage(error, "excluir"), "error");
+    await loadSelectedRouteDetails();
+  } finally {
+    savingPointId = null;
+    syncRefreshTimer();
   }
 }
 
@@ -1007,12 +1467,101 @@ function openMapModal() {
 }
 
 function closeMapModal() {
+  if (isEditingMapPoints) {
+    setMapEditing(false);
+  }
+
   isMapModalOpen = false;
   mapModal.classList.add("hidden");
 
   if (!isDetailModalOpen) {
     document.body.classList.remove("modal-open");
   }
+}
+
+function createPointPopupContent(point, maxOrder) {
+  const container = document.createElement("div");
+  container.className = "point-popup-content";
+
+  const lines = [
+    `<strong>Ponto ${escapeHtml(point.ordem_ponto)}</strong>`,
+    `Tipo: ${escapeHtml(getPointTypeLabel(point.tipo_ponto))}`,
+    `Horario: ${escapeHtml(formatDate(point.data_hora_registro))}`,
+    `Lat: ${escapeHtml(formatNumber(point.latitude))}`,
+    `Lng: ${escapeHtml(formatNumber(point.longitude))}`,
+  ];
+
+  container.innerHTML = lines.join("<br>");
+
+  if (!isEditingMapPoints) {
+    return container;
+  }
+
+  const hint = document.createElement("strong");
+  hint.className = "popup-edit-hint";
+  hint.textContent = "Arraste para ajustar ou clique no mapa para inserir ponto";
+  container.appendChild(hint);
+
+  const orderEditor = document.createElement("label");
+  orderEditor.className = "popup-order-editor";
+
+  const label = document.createElement("span");
+  label.textContent = "ID/ordem";
+
+  const input = document.createElement("input");
+  input.type = "number";
+  input.min = "1";
+  input.max = String(maxOrder);
+  input.value = String(point.ordem_ponto);
+
+  const saveButton = document.createElement("button");
+  saveButton.type = "button";
+  saveButton.textContent = "Alterar ID";
+  saveButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    suppressMapClickUntil = Date.now() + 800;
+    movePointToOrder(point, Number(input.value));
+  });
+
+  orderEditor.append(label, input, saveButton);
+  container.appendChild(orderEditor);
+
+  if (point.tipo_ponto === "trajeto") {
+    const deleteButton = document.createElement("button");
+    deleteButton.className = "popup-danger-button";
+    deleteButton.type = "button";
+    deleteButton.textContent = "Excluir ponto";
+    deleteButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      suppressMapClickUntil = Date.now() + 800;
+      deleteTrackPoint(point);
+    });
+    container.appendChild(deleteButton);
+  }
+
+  return container;
+}
+
+function drawRouteMarkers(validPoints) {
+  const maxOrder = getOrderedValidPoints(currentRoutePoints).length || validPoints.length;
+  validPoints.forEach((point) => {
+    const marker = L.marker([point.latitude, point.longitude], {
+      icon: getMarkerIcon(point),
+      title: `Ponto ${point.ordem_ponto}`,
+      draggable: isEditingMapPoints,
+    })
+      .bindPopup(createPointPopupContent(point, maxOrder))
+      .addTo(routeMapLayer);
+
+    if (isEditingMapPoints) {
+      marker.on("dragstart", () => {
+        suppressMapClickUntil = Date.now() + 800;
+      });
+      marker.on("dragend", () => updatePointPosition(point, marker.getLatLng()));
+    }
+  });
 }
 
 function renderRouteMap(points) {
@@ -1025,6 +1574,8 @@ function renderRouteMap(points) {
 
   map.invalidateSize();
 
+  routeLineRequestId += 1;
+  const requestId = routeLineRequestId;
   routeMapLayer.clearLayers();
 
   const validPoints = points.filter(
@@ -1038,6 +1589,11 @@ function renderRouteMap(points) {
     mapStatus.textContent = "Sem pontos para exibir";
     fitMapButton.disabled = true;
     currentMapLatLngs = [];
+    if (routeLineLayer) {
+      routeMap.removeLayer(routeLineLayer);
+      routeLineLayer = null;
+      routeLineSignature = "";
+    }
 
     if (routeChanged || !mapUserAdjustedView) {
       mapAutoFitting = true;
@@ -1058,34 +1614,31 @@ function renderRouteMap(points) {
   fitMapButton.disabled = false;
 
   if (latLngs.length > 1 && getMapViewMode() !== "pontos") {
-    L.polyline(latLngs, {
-      color: "#1264c8",
-      weight: 4,
-      opacity: 0.85,
-    }).addTo(routeMapLayer);
+    const cachedLatLngs = routedLineCache.get(pointSignature);
+
+    drawRouteLine(cachedLatLngs || latLngs, cachedLatLngs
+      ? {
+          color: "#116149",
+          weight: 5,
+          opacity: 0.9,
+          signature: `${isEditingMapPoints ? "edit" : "view"}::routed::${pointSignature}`,
+        }
+      : {
+          color: "#1264c8",
+          weight: 4,
+          opacity: 0.65,
+          signature: `${isEditingMapPoints ? "edit" : "view"}::fallback::${pointSignature}`,
+        });
+    if (!cachedLatLngs) {
+      drawRoutedLine(validPoints, latLngs, requestId);
+    }
+  } else if (routeLineLayer) {
+    routeMap.removeLayer(routeLineLayer);
+    routeLineLayer = null;
+    routeLineSignature = "";
   }
 
-  validPoints.forEach((point) => {
-    const marker = L.marker([point.latitude, point.longitude], {
-      icon: getMarkerIcon(point),
-      title: `Ponto ${point.ordem_ponto}`,
-      draggable: isEditingMapPoints,
-    })
-      .bindPopup(
-        `<strong>Ponto ${point.ordem_ponto}</strong><br>` +
-          `Tipo: ${getPointTypeLabel(point.tipo_ponto)}<br>` +
-          `Horario: ${formatDate(point.data_hora_registro)}<br>` +
-          `Lat: ${formatNumber(point.latitude)}<br>` +
-          `Lng: ${formatNumber(point.longitude)}${
-            isEditingMapPoints ? "<br><strong>Arraste para ajustar</strong>" : ""
-          }`
-      )
-      .addTo(routeMapLayer);
-
-    if (isEditingMapPoints) {
-      marker.on("dragend", () => updatePointPosition(point, marker.getLatLng()));
-    }
-  });
+  drawRouteMarkers(validPoints);
 
   if (routeChanged) {
     mapUserAdjustedView = false;
@@ -1098,7 +1651,15 @@ function renderRouteMap(points) {
 
   renderedMapRouteId = selectedRouteId;
   renderedPointSignature = pointSignature;
-  mapStatus.textContent = `${validPoints.length} ${getMapViewLabel()} no mapa`;
+  if (latLngs.length > 1 && getMapViewMode() !== "pontos") {
+    mapStatus.textContent = routedLineCache.has(pointSignature)
+      ? `${validPoints.length} ${getMapViewLabel()} no mapa - rota por ruas`
+      : isEditingMapPoints
+        ? `${validPoints.length} ${getMapViewLabel()} no mapa - edicao ativa`
+      : `${validPoints.length} ${getMapViewLabel()} no mapa - calculando rota`;
+  } else {
+    mapStatus.textContent = `${validPoints.length} ${getMapViewLabel()} no mapa`;
+  }
 }
 
 function renderRouteList() {
@@ -1627,7 +2188,7 @@ function syncRefreshTimer() {
     refreshTimer = null;
   }
 
-  if (autoRefreshToggle.checked) {
+  if (autoRefreshToggle.checked && !isEditingMapPoints && !savingPointId) {
     refreshTimer = setInterval(refreshDashboard, REFRESH_INTERVAL_MS);
   }
 }

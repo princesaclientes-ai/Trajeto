@@ -132,7 +132,7 @@ with check (
     select 1
     from public.trajetos t
     where t.id = trajeto_id
-      and t.status = 'em_andamento'
+      and t.status in ('em_andamento', 'finalizado', 'trajeto')
   )
 );
 

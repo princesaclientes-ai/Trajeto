@@ -932,6 +932,78 @@ h2 {
   background: #116149;
 }
 
+.editable-route-line {
+  cursor: crosshair;
+}
+
+.point-popup-content {
+  min-width: 210px;
+}
+
+.popup-edit-hint {
+  display: block;
+  margin-top: 6px;
+  line-height: 1.25;
+}
+
+.popup-order-editor {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  align-items: end;
+}
+
+.popup-order-editor span {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.popup-order-editor input {
+  width: 74px;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 8px;
+  font-weight: 800;
+}
+
+.popup-order-editor button {
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #ffffff;
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.popup-order-editor button:hover {
+  border-color: var(--primary);
+}
+
+.popup-danger-button {
+  margin-top: 8px;
+  min-height: 30px;
+  border: 1px solid #e8c7c4;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #ffffff;
+  color: var(--danger);
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.popup-danger-button:hover {
+  border-color: var(--danger);
+}
+
 .table-wrap {
   margin: 18px 18px 24px;
   border: 1px solid var(--line);
