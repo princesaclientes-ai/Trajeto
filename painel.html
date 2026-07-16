@@ -247,6 +247,9 @@
                 <button class="export-button" id="exportKmlButton" type="button" disabled>
                   KML
                 </button>
+                <button class="export-button" id="exportOrusButton" type="button" disabled title="Exportar somente a linha do trajeto em KML">
+                  OrUS
+                </button>
                 <button class="export-button" id="exportJsonButton" type="button" disabled>
                   JSON
                 </button>
@@ -254,6 +257,19 @@
                   Excel
                 </button>
               </div>
+              <button class="button danger bulk-delete-button" id="deleteSelectedPointsButton" type="button" disabled>
+                Excluir selecionados (0)
+              </button>
+              <div class="range-delete-controls" aria-label="Excluir pontos por intervalo">
+                <label>De <select id="deleteRangeStart" disabled><option value="">-</option></select></label>
+                <label>Ate <select id="deleteRangeEnd" disabled><option value="">-</option></select></label>
+                <button class="button danger bulk-delete-button" id="deletePointRangeButton" type="button" disabled>
+                  Excluir intervalo
+                </button>
+              </div>
+              <button class="button secondary bulk-delete-button" id="undoDeletePointsButton" type="button" disabled>
+                Desfazer exclusao
+              </button>
               <button class="button secondary" id="openMapButton" type="button" disabled>
                 Abrir mapa
               </button>
@@ -264,17 +280,21 @@
             <table>
               <thead>
                 <tr>
+                  <th class="selection-column">
+                    <input id="selectAllPoints" type="checkbox" aria-label="Selecionar todos os pontos visiveis" disabled />
+                  </th>
                   <th>Ordem</th>
                   <th>Tipo</th>
                   <th>Data e hora</th>
                   <th>Latitude</th>
                   <th>Longitude</th>
                   <th>Mapa</th>
+                  <th>Acao</th>
                 </tr>
               </thead>
               <tbody id="pointsTable">
                 <tr>
-                  <td colspan="6" class="empty-cell">Nenhum trajeto selecionado.</td>
+                  <td colspan="8" class="empty-cell">Nenhum trajeto selecionado.</td>
                 </tr>
               </tbody>
             </table>
@@ -294,6 +314,11 @@
             <h2 id="mapModalTitle">Pontos do condutor</h2>
           </div>
           <div class="map-meta">
+            <div class="map-search" id="mapSearchForm" role="search">
+              <label class="sr-only" for="mapPointSearch">Pesquisar endereco, coordenadas ou ponto</label>
+              <input id="mapPointSearch" type="search" placeholder="Endereco, latitude ou ponto" autocomplete="off" />
+              <button id="mapSearchButton" type="button">Buscar</button>
+            </div>
             <div class="map-view-toggle" aria-label="Visualizacao do mapa">
               <label>
                 <input type="radio" name="mapViewModal" value="ambos" checked />
@@ -318,6 +343,9 @@
             </button>
             <button class="map-fit-button" id="editMapButton" type="button" disabled>
               Editar pontos
+            </button>
+            <button class="map-fit-button" id="undoPointOrderButton" type="button" disabled>
+              Desfazer ordem
             </button>
             <button class="map-close-button" id="closeMapButton" type="button" aria-label="Fechar mapa">
               Fechar

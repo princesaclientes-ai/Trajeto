@@ -2,6 +2,7 @@ const SUPABASE_URL = "https://tytiezeamgwmqrrygoia.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_gP0qRTSoUiO8-yMq8dgWEQ_1E3MTt7p";
 const REFRESH_INTERVAL_MS = 5000;
 const ROUTING_CHUNK_SIZE = 25;
+const POINT_UPDATE_CONCURRENCY = 25;
 const ROUTING_SERVICE_URL = "https://router.project-osrm.org/route/v1/driving";
 
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -41,6 +42,12 @@ const selectedLinha = document.querySelector("#selectedLinha");
 const selectedStart = document.querySelector("#selectedStart");
 const selectedEnd = document.querySelector("#selectedEnd");
 const pointsTable = document.querySelector("#pointsTable");
+const selectAllPoints = document.querySelector("#selectAllPoints");
+const deleteSelectedPointsButton = document.querySelector("#deleteSelectedPointsButton");
+const undoDeletePointsButton = document.querySelector("#undoDeletePointsButton");
+const deleteRangeStart = document.querySelector("#deleteRangeStart");
+const deleteRangeEnd = document.querySelector("#deleteRangeEnd");
+const deletePointRangeButton = document.querySelector("#deletePointRangeButton");
 const mapStatus = document.querySelector("#mapStatus");
 const totalVisibleRecords = document.querySelector("#totalVisibleRecords");
 const totalManualPoints = document.querySelector("#totalManualPoints");
@@ -48,12 +55,16 @@ const totalTrackPoints = document.querySelector("#totalTrackPoints");
 const routeStorageUsage = document.querySelector("#routeStorageUsage");
 const fitMapButton = document.querySelector("#fitMapButton");
 const editMapButton = document.querySelector("#editMapButton");
+const undoPointOrderButton = document.querySelector("#undoPointOrderButton");
 const openMapButton = document.querySelector("#openMapButton");
 const closeMapButton = document.querySelector("#closeMapButton");
 const mapModal = document.querySelector("#mapModal");
 const mapModalBackdrop = document.querySelector("#mapModalBackdrop");
 const mapModalTitle = document.querySelector("#mapModalTitle");
+const mapPointSearch = document.querySelector("#mapPointSearch");
+const mapSearchButton = document.querySelector("#mapSearchButton");
 const exportKmlButton = document.querySelector("#exportKmlButton");
+const exportOrusButton = document.querySelector("#exportOrusButton");
 const exportJsonButton = document.querySelector("#exportJsonButton");
 const exportExcelButton = document.querySelector("#exportExcelButton");
 const mapViewInputs = document.querySelectorAll('input[name="mapView"], input[name="mapViewModal"]');
@@ -66,11 +77,14 @@ const closeDetailButton = document.querySelector("#closeDetailButton");
 
 let routes = [];
 let pointCountByRouteId = new Map();
+const HISTORY_SELECTION_STORAGE_KEY = "painel_route_history_selection";
+const selectedRouteByLineKey = new Map();
 let selectedRouteId = null;
 let refreshTimer = null;
 let routeMap = null;
 let routeMapLayer = null;
 let routeLineLayer = null;
+let mapSearchResultMarker = null;
 let routeLineSignature = "";
 let mapAutoFitting = false;
 let mapUserAdjustedView = false;
@@ -82,9 +96,78 @@ let isMapModalOpen = false;
 let isDetailModalOpen = false;
 let isEditingMapPoints = false;
 let savingPointId = null;
+let lastPointOrderSnapshot = null;
+const selectedPointIds = new Set();
+let lastDeletedPointBatch = null;
 let routeLineRequestId = 0;
 let suppressMapClickUntil = 0;
 const routedLineCache = new Map();
+const routeMarkerByPointId = new Map();
+
+function updatePointSelectionControls(visiblePoints = filterPointsByView(currentRoutePoints)) {
+  const visibleIds = visiblePoints.map((point) => String(point.id));
+  const selectedVisibleCount = visibleIds.filter((id) => selectedPointIds.has(id)).length;
+
+  selectAllPoints.disabled = visibleIds.length === 0 || Boolean(savingPointId);
+  selectAllPoints.checked = visibleIds.length > 0 && selectedVisibleCount === visibleIds.length;
+  selectAllPoints.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleIds.length;
+  deleteSelectedPointsButton.disabled = selectedPointIds.size === 0 || Boolean(savingPointId);
+  deleteSelectedPointsButton.textContent = `Excluir selecionados (${selectedPointIds.size})`;
+  undoDeletePointsButton.disabled =
+    !lastDeletedPointBatch ||
+    lastDeletedPointBatch.routeId !== selectedRouteId ||
+    Boolean(savingPointId);
+  const rangeReady = deleteRangeStart.value !== "" && deleteRangeEnd.value !== "";
+  deleteRangeStart.disabled = currentRoutePoints.length === 0 || Boolean(savingPointId);
+  deleteRangeEnd.disabled = currentRoutePoints.length === 0 || Boolean(savingPointId);
+  deletePointRangeButton.disabled = !rangeReady || Boolean(savingPointId);
+}
+
+function updateDeleteRangeOptions(points) {
+  const previousStart = deleteRangeStart.value;
+  const previousEnd = deleteRangeEnd.value;
+  const orderedPoints = getOrderedValidPoints(points);
+  const options = orderedPoints
+    .map((point) => `<option value="${escapeHtml(point.ordem_ponto)}">${escapeHtml(point.ordem_ponto)}</option>`)
+    .join("");
+
+  deleteRangeStart.innerHTML = `<option value="">-</option>${options}`;
+  deleteRangeEnd.innerHTML = `<option value="">-</option>${options}`;
+
+  if (orderedPoints.some((point) => String(point.ordem_ponto) === previousStart)) {
+    deleteRangeStart.value = previousStart;
+  }
+  if (orderedPoints.some((point) => String(point.ordem_ponto) === previousEnd)) {
+    deleteRangeEnd.value = previousEnd;
+  }
+}
+
+function loadRouteHistorySelection() {
+  try {
+    const storedSelection = JSON.parse(
+      window.localStorage.getItem(HISTORY_SELECTION_STORAGE_KEY) || "{}"
+    );
+
+    Object.entries(storedSelection).forEach(([lineKey, routeId]) => {
+      if (typeof lineKey === "string" && typeof routeId === "string") {
+        selectedRouteByLineKey.set(lineKey, routeId);
+      }
+    });
+  } catch (error) {
+    console.warn("Nao foi possivel carregar o historico selecionado.", error);
+  }
+}
+
+function saveRouteHistorySelection() {
+  try {
+    window.localStorage.setItem(
+      HISTORY_SELECTION_STORAGE_KEY,
+      JSON.stringify(Object.fromEntries(selectedRouteByLineKey))
+    );
+  } catch (error) {
+    console.warn("Nao foi possivel salvar o historico selecionado.", error);
+  }
+}
 
 function getFilteredRoutes() {
   const driverText = driverFilter.value.trim().toLowerCase();
@@ -136,11 +219,7 @@ function populateListBoxFilters() {
     uniqueSorted(sourceRoutes.map((route) => route.cliente))
   );
 
-  fillFilterSelect(
-    lineFilter,
-    "Todas as linhas",
-    uniqueSorted(sourceRoutes.map((route) => route.nome_linha))
-  );
+  refreshLineFilterOptions();
 }
 
 function renderFilteredViews() {
@@ -589,6 +668,62 @@ ${pointPlacemarks}
 </kml>`;
 }
 
+function buildOrusKmlExport(route, points, routedLatLngs = null) {
+  const name = escapeXml(getExportName(route));
+  const trackPoints = getRouteTrackPoints(points);
+  const routeCoordinates = routedLatLngs?.length
+    ? routedLatLngs.map(([latitude, longitude]) => ({ latitude, longitude }))
+    : trackPoints;
+  const coordinates = routeCoordinates
+    .map((point) => `          ${Number(point.longitude).toFixed(6)},${Number(point.latitude).toFixed(6)},0`)
+    .join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${name}</name>
+    <Style id="line-1267FF-5000-nodesc-normal">
+      <LineStyle>
+        <color>ffff6712</color>
+        <width>5</width>
+      </LineStyle>
+      <BalloonStyle>
+        <text><![CDATA[<h3>$[name]</h3>]]></text>
+      </BalloonStyle>
+    </Style>
+    <Style id="line-1267FF-5000-nodesc-highlight">
+      <LineStyle>
+        <color>ffff6712</color>
+        <width>7.5</width>
+      </LineStyle>
+      <BalloonStyle>
+        <text><![CDATA[<h3>$[name]</h3>]]></text>
+      </BalloonStyle>
+    </Style>
+    <StyleMap id="line-1267FF-5000-nodesc">
+      <Pair>
+        <key>normal</key>
+        <styleUrl>#line-1267FF-5000-nodesc-normal</styleUrl>
+      </Pair>
+      <Pair>
+        <key>highlight</key>
+        <styleUrl>#line-1267FF-5000-nodesc-highlight</styleUrl>
+      </Pair>
+    </StyleMap>
+    <Placemark>
+      <name>${name}</name>
+      <styleUrl>#line-1267FF-5000-nodesc</styleUrl>
+      <LineString>
+        <tessellate>1</tessellate>
+        <coordinates>
+${coordinates}
+        </coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>`;
+}
+
 function getColumnLetter(index) {
   let column = "";
   let value = index + 1;
@@ -838,7 +973,7 @@ function buildExcelExport(route, points) {
   ]);
 }
 
-function exportSelectedRoute(format) {
+async function exportSelectedRoute(format) {
   const route = getSelectedRoute();
 
   if (!route || currentRoutePoints.length === 0) {
@@ -854,6 +989,34 @@ function exportSelectedRoute(format) {
       buildKmlExport(route, currentRoutePoints),
       "application/vnd.google-earth.kml+xml;charset=utf-8"
     );
+    return;
+  }
+
+  if (format === "orus") {
+    const exportPoints = [...currentRoutePoints];
+    const trackPoints = getRouteTrackPoints(exportPoints);
+    if (trackPoints.length < 2) {
+      setMessage("O trajeto precisa ter pelo menos dois registros para exportar no formato OrUS.", "error");
+      return;
+    }
+    exportOrusButton.disabled = true;
+    setMessage("Calculando o trajeto pelas ruas para gerar o OrUS...", "");
+    try {
+      const routedLatLngs = await fetchRoutedLatLngs(trackPoints);
+      if (routedLatLngs.length < 2) {
+        throw new Error("nao foi possivel gerar a geometria detalhada da rota");
+      }
+      downloadTextFile(
+        `${filename}-OrUS.kml`,
+        buildOrusKmlExport(route, exportPoints, routedLatLngs),
+        "application/vnd.google-earth.kml+xml;charset=utf-8"
+      );
+      setMessage("OrUS gerado com o trajeto ajustado pelas ruas.", "success");
+    } catch (error) {
+      setMessage(`Erro ao gerar OrUS pelas ruas: ${error.message}`, "error");
+    } finally {
+      exportOrusButton.disabled = getRouteTrackPoints(currentRoutePoints).length < 2;
+    }
     return;
   }
 
@@ -1252,6 +1415,15 @@ async function updatePointOrder(pointId, ordemPonto) {
   }
 }
 
+async function updatePointOrdersInBatches(updates) {
+  for (let index = 0; index < updates.length; index += POINT_UPDATE_CONCURRENCY) {
+    const batch = updates.slice(index, index + POINT_UPDATE_CONCURRENCY);
+    await Promise.all(
+      batch.map(({ pointId, order }) => updatePointOrder(pointId, order))
+    );
+  }
+}
+
 function getSafeTemporaryOrderBase(points, extraCount = 0) {
   const maxOrder = Math.max(
     0,
@@ -1271,13 +1443,12 @@ async function renumberRoutePointsWithInsertedPoint(insertedPointId, newOrder) {
 
   const tempBaseOrder = getSafeTemporaryOrderBase(orderedPoints, orderedIds.length);
 
-  for (let index = 0; index < orderedIds.length; index += 1) {
-    await updatePointOrder(orderedIds[index], tempBaseOrder + index);
-  }
-
-  for (let index = 0; index < orderedIds.length; index += 1) {
-    await updatePointOrder(orderedIds[index], index + 1);
-  }
+  await updatePointOrdersInBatches(
+    orderedIds.map((pointId, index) => ({ pointId, order: tempBaseOrder + index }))
+  );
+  await updatePointOrdersInBatches(
+    orderedIds.map((pointId, index) => ({ pointId, order: index + 1 }))
+  );
 }
 
 async function renumberExistingRoutePoints(points) {
@@ -1286,13 +1457,12 @@ async function renumberExistingRoutePoints(points) {
     .map((point) => point.id);
   const tempBaseOrder = getSafeTemporaryOrderBase(points, orderedIds.length);
 
-  for (let index = 0; index < orderedIds.length; index += 1) {
-    await updatePointOrder(orderedIds[index], tempBaseOrder + index);
-  }
-
-  for (let index = 0; index < orderedIds.length; index += 1) {
-    await updatePointOrder(orderedIds[index], index + 1);
-  }
+  await updatePointOrdersInBatches(
+    orderedIds.map((pointId, index) => ({ pointId, order: tempBaseOrder + index }))
+  );
+  await updatePointOrdersInBatches(
+    orderedIds.map((pointId, index) => ({ pointId, order: index + 1 }))
+  );
 }
 
 async function movePointToOrder(point, targetOrder) {
@@ -1309,6 +1479,17 @@ async function movePointToOrder(point, targetOrder) {
   }
 
   const boundedOrder = Math.max(1, Math.min(Number(targetOrder) || point.ordem_ponto, orderedPoints.length));
+  if (boundedOrder === pointIndex + 1) {
+    setMessage("O ponto ja esta nessa ordem.", "");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Mover o ponto ${point.ordem_ponto} para a ordem ${boundedOrder}? Os pontos entre essas posicoes serao renumerados.`
+  );
+  if (!confirmed) return;
+
+  const previousOrder = [...orderedPoints];
   const nextOrder = [...orderedPoints];
   const [movedPoint] = nextOrder.splice(pointIndex, 1);
 
@@ -1321,10 +1502,46 @@ async function movePointToOrder(point, targetOrder) {
 
   try {
     await renumberExistingRoutePoints(nextOrder);
+    lastPointOrderSnapshot = {
+      routeId: selectedRouteId,
+      points: previousOrder,
+    };
+    undoPointOrderButton.disabled = false;
     setMessage("ID do ponto atualizado e trajeto recalculado.", "success");
     await loadSelectedRouteDetails();
   } catch (error) {
     setMessage(getPointEditErrorMessage(error, "alterar ID do ponto"), "error");
+    await loadSelectedRouteDetails();
+  } finally {
+    savingPointId = null;
+    syncRefreshTimer();
+  }
+}
+
+async function undoLastPointOrderChange() {
+  const snapshot = lastPointOrderSnapshot;
+  if (!snapshot || snapshot.routeId !== selectedRouteId || savingPointId) {
+    setMessage("Nao ha alteracao de ordem para desfazer neste trajeto.", "error");
+    return;
+  }
+
+  const confirmed = window.confirm("Restaurar a sequencia anterior dos pontos?");
+  if (!confirmed) return;
+
+  savingPointId = "desfazer-ordem";
+  undoPointOrderButton.disabled = true;
+  routedLineCache.clear();
+  syncRefreshTimer();
+  setMessage("Restaurando sequencia anterior...", "");
+
+  try {
+    await renumberExistingRoutePoints(snapshot.points);
+    lastPointOrderSnapshot = null;
+    setMessage("Sequencia anterior restaurada.", "success");
+    await loadSelectedRouteDetails();
+  } catch (error) {
+    undoPointOrderButton.disabled = false;
+    setMessage(getPointEditErrorMessage(error, "desfazer alteracao de ordem"), "error");
     await loadSelectedRouteDetails();
   } finally {
     savingPointId = null;
@@ -1396,13 +1613,18 @@ async function insertTrackPointAt(latLng) {
   }
 }
 
-async function deleteTrackPoint(point) {
+async function deleteMapPoint(point) {
   if (!point || savingPointId) {
     return;
   }
 
-  if (point.tipo_ponto !== "trajeto") {
-    setMessage("Somente pontos de trajeto podem ser excluidos no mapa.", "error");
+  if (point.tipo_ponto === "primeiro") {
+    setMessage("O ponto inicial e protegido e nao pode ser excluido no mapa.", "error");
+    return;
+  }
+
+  if (point.tipo_ponto !== "trajeto" && point.tipo_ponto !== "manual") {
+    setMessage("Este tipo de ponto nao pode ser excluido no mapa.", "error");
     return;
   }
 
@@ -1439,7 +1661,7 @@ async function deleteTrackPoint(point) {
     await renumberExistingRoutePoints(
       getOrderedValidPoints(currentRoutePoints).filter((item) => item.id !== point.id)
     );
-    setMessage("Ponto excluido e sequencia reorganizada.", "success");
+    setMessage(`${pointType} excluido e sequencia reorganizada.`, "success");
     await loadSelectedRouteDetails();
   } catch (error) {
     setMessage(getPointEditErrorMessage(error, "excluir"), "error");
@@ -1487,8 +1709,7 @@ function createPointPopupContent(point, maxOrder) {
     `<strong>Ponto ${escapeHtml(point.ordem_ponto)}</strong>`,
     `Tipo: ${escapeHtml(getPointTypeLabel(point.tipo_ponto))}`,
     `Horario: ${escapeHtml(formatDate(point.data_hora_registro))}`,
-    `Lat: ${escapeHtml(formatNumber(point.latitude))}`,
-    `Lng: ${escapeHtml(formatNumber(point.longitude))}`,
+    `LatLng: ${escapeHtml(formatNumber(point.latitude))}, ${escapeHtml(formatNumber(point.longitude))}`,
   ];
 
   container.innerHTML = lines.join("<br>");
@@ -1506,7 +1727,7 @@ function createPointPopupContent(point, maxOrder) {
   orderEditor.className = "popup-order-editor";
 
   const label = document.createElement("span");
-  label.textContent = "ID/ordem";
+  label.textContent = "Ordem";
 
   const input = document.createElement("input");
   input.type = "number";
@@ -1516,7 +1737,7 @@ function createPointPopupContent(point, maxOrder) {
 
   const saveButton = document.createElement("button");
   saveButton.type = "button";
-  saveButton.textContent = "Alterar ID";
+  saveButton.textContent = "Alterar ordem";
   saveButton.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1528,15 +1749,29 @@ function createPointPopupContent(point, maxOrder) {
   container.appendChild(orderEditor);
 
   if (point.tipo_ponto === "trajeto") {
+    const manualButton = document.createElement("button");
+    manualButton.className = "popup-secondary-button";
+    manualButton.type = "button";
+    manualButton.textContent = "Tornar manual";
+    manualButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      suppressMapClickUntil = Date.now() + 800;
+      convertTrackPointToManual(point);
+    });
+    container.appendChild(manualButton);
+  }
+
+  if (point.tipo_ponto === "trajeto" || point.tipo_ponto === "manual") {
     const deleteButton = document.createElement("button");
     deleteButton.className = "popup-danger-button";
     deleteButton.type = "button";
-    deleteButton.textContent = "Excluir ponto";
+    deleteButton.textContent = point.tipo_ponto === "manual" ? "Excluir ponto manual" : "Excluir ponto";
     deleteButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
       suppressMapClickUntil = Date.now() + 800;
-      deleteTrackPoint(point);
+      deleteMapPoint(point);
     });
     container.appendChild(deleteButton);
   }
@@ -1554,6 +1789,8 @@ function drawRouteMarkers(validPoints) {
     })
       .bindPopup(createPointPopupContent(point, maxOrder))
       .addTo(routeMapLayer);
+
+    routeMarkerByPointId.set(String(point.id), marker);
 
     if (isEditingMapPoints) {
       marker.on("dragstart", () => {
@@ -1577,6 +1814,7 @@ function renderRouteMap(points) {
   routeLineRequestId += 1;
   const requestId = routeLineRequestId;
   routeMapLayer.clearLayers();
+  routeMarkerByPointId.clear();
 
   const validPoints = points.filter(
     (point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude)
@@ -1584,6 +1822,12 @@ function renderRouteMap(points) {
   const pointSignature = getPointSignature(validPoints);
   const routeChanged = renderedMapRouteId !== selectedRouteId;
   const pointsChanged = renderedPointSignature !== pointSignature;
+
+  if (routeChanged && mapSearchResultMarker) {
+    routeMap.removeLayer(mapSearchResultMarker);
+    mapSearchResultMarker = null;
+    mapPointSearch.value = "";
+  }
 
   if (validPoints.length === 0) {
     mapStatus.textContent = "Sem pontos para exibir";
@@ -1662,6 +1906,99 @@ function renderRouteMap(points) {
   }
 }
 
+function showMapSearchLocation(latitude, longitude, label) {
+  if (mapSearchResultMarker) {
+    routeMap.removeLayer(mapSearchResultMarker);
+  }
+
+  mapSearchResultMarker = L.marker([latitude, longitude], {
+    title: label,
+  })
+    .bindPopup(`<strong>${escapeHtml(label)}</strong><br>LatLng: ${escapeHtml(formatNumber(latitude))}, ${escapeHtml(formatNumber(longitude))}`)
+    .addTo(routeMap);
+
+  mapUserAdjustedView = true;
+  routeMap.setView([latitude, longitude], Math.max(routeMap.getZoom(), 17), { animate: true });
+  mapSearchResultMarker.openPopup();
+}
+
+async function searchMapPoint(event) {
+  event?.preventDefault();
+  const query = mapPointSearch.value.trim();
+
+  if (!query) {
+    setMessage("Digite um endereco, coordenadas ou numero de ponto.", "error");
+    mapPointSearch.focus();
+    return;
+  }
+
+  const coordinateMatch = query.match(
+    /^\s*(-?\d{1,2}(?:[.,]\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:[.,]\d+)?)\s*$/
+  );
+  if (coordinateMatch) {
+    const latitude = Number(coordinateMatch[1].replace(",", "."));
+    const longitude = Number(coordinateMatch[2].replace(",", "."));
+    if (latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180) {
+      showMapSearchLocation(latitude, longitude, "Coordenadas pesquisadas");
+      setMessage("Coordenadas localizadas no mapa.", "success");
+      return;
+    }
+  }
+
+  const pointMatch = query.match(/^(?:ponto\s*)?#?(\d+)$/i);
+  if (pointMatch) {
+    const searchedOrder = Number(pointMatch[1]);
+    const point = currentRoutePoints.find(
+      (item) => Number(item.ordem_ponto) === searchedOrder
+    );
+    if (!point) {
+      setMessage(`Ponto ${searchedOrder} nao encontrado neste trajeto.`, "error");
+      return;
+    }
+
+    const marker = routeMarkerByPointId.get(String(point.id));
+    if (!marker) {
+      setMessage(
+        `O ponto ${searchedOrder} esta oculto pelo filtro atual. Selecione Ambos para visualiza-lo.`,
+        "error"
+      );
+      return;
+    }
+
+    mapUserAdjustedView = true;
+    routeMap.setView(marker.getLatLng(), Math.max(routeMap.getZoom(), 17), { animate: true });
+    marker.openPopup();
+    setMessage(`Ponto ${searchedOrder} localizado no mapa.`, "success");
+    return;
+  }
+
+  mapSearchButton.disabled = true;
+  setMessage("Pesquisando endereco...", "");
+
+  try {
+    const url = new URL("https://nominatim.openstreetmap.org/search");
+    url.searchParams.set("format", "jsonv2");
+    url.searchParams.set("limit", "1");
+    url.searchParams.set("countrycodes", "br");
+    url.searchParams.set("q", query);
+    const response = await fetch(url, { headers: { "Accept-Language": "pt-BR" } });
+    if (!response.ok) throw new Error("servico de enderecos indisponivel");
+    const results = await response.json();
+    if (!results.length) {
+      setMessage("Endereco nao encontrado. Tente incluir cidade e estado.", "error");
+      return;
+    }
+
+    const result = results[0];
+    showMapSearchLocation(Number(result.lat), Number(result.lon), result.display_name);
+    setMessage("Endereco localizado no mapa.", "success");
+  } catch (error) {
+    setMessage(`Erro ao pesquisar endereco: ${error.message}`, "error");
+  } finally {
+    mapSearchButton.disabled = false;
+  }
+}
+
 function renderRouteList() {
   routeList.innerHTML = "";
   const filteredRoutes = getFilteredRoutes();
@@ -1724,13 +2061,60 @@ function getConfiguredLines() {
   }));
 }
 
-function getRouteForConfiguredLine(option) {
-  return routes.find(
+function getConfiguredLineKey(option) {
+  return [option.cliente || "", option.nome_linha || "", option.sentido || ""].join("||");
+}
+
+function getRouteHistoryForConfiguredLine(option) {
+  return routes.filter(
     (route) =>
       route.cliente === option.cliente &&
       (route.nome_linha || "") === (option.nome_linha || "") &&
       (route.sentido || "") === (option.sentido || "")
   );
+}
+
+function getRouteForConfiguredLine(option) {
+  const history = getRouteHistoryForConfiguredLine(option);
+
+  if (history.length === 0) {
+    return null;
+  }
+
+  const lineKey = getConfiguredLineKey(option);
+  const selectedHistoryId = selectedRouteByLineKey.get(lineKey);
+  const selectedHistoryRoute = history.find((route) => route.id === selectedHistoryId);
+
+  if (selectedHistoryRoute) {
+    return selectedHistoryRoute;
+  }
+
+  selectedRouteByLineKey.set(lineKey, history[0].id);
+  return history[0];
+}
+
+function formatRouteHistoryOption(route) {
+  const count = pointCountByRouteId.get(route.id) || 0;
+  const conductor = getRouteConductorInfo(route);
+  const conductorName = conductor?.apelido || route.matricula_condutor || "-";
+
+  return `${formatDate(route.data_hora_inicio)} | ${conductorName} | ${count} registros | ${getStatusLabel(getRouteStatus(route))}`;
+}
+
+function cleanupSelectedRouteHistory() {
+  const existingRouteIds = new Set(routes.map((route) => route.id));
+  let changed = false;
+
+  selectedRouteByLineKey.forEach((routeId, lineKey) => {
+    if (!existingRouteIds.has(routeId)) {
+      selectedRouteByLineKey.delete(lineKey);
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    saveRouteHistorySelection();
+  }
 }
 
 function getConfiguredLinePointCount(option) {
@@ -1746,13 +2130,34 @@ function getFilteredChecklistLines() {
   const statusValue = statusFilter.value;
 
   return getConfiguredLines().filter((option) => {
-    const route = getRouteForConfiguredLine(option);
-    const status = getRouteStatus(route);
-    const matchesDriver = !driverText || getDriverSearchText(route).includes(driverText);
+    const history = getRouteHistoryForConfiguredLine(option);
+    const isNotTraveled = history.length === 0;
+    const selectedRoute = getRouteForConfiguredLine(option);
+    const lineKey = getConfiguredLineKey(option);
+    const matchingHistory = history.filter((historyRoute) => {
+      const matchesDriverFilter =
+        !driverText || getDriverSearchText(historyRoute).includes(driverText);
+      const matchesStatusFilter = !statusValue || getRouteStatus(historyRoute) === statusValue;
+
+      return matchesDriverFilter && matchesStatusFilter;
+    });
+    const matchesDriver =
+      !driverText || history.some((historyRoute) => getDriverSearchText(historyRoute).includes(driverText));
     const matchesClient = !clientValue || option.cliente === clientValue;
     const matchesDirection = !directionValue || option.sentido === directionValue;
     const matchesLine = !lineValue || option.nome_linha === lineValue;
-    const matchesStatus = !statusValue || status === statusValue;
+    const matchesStatus =
+      !statusValue ||
+      (statusValue === "nao_percorrido"
+        ? isNotTraveled
+        : history.some((historyRoute) => getRouteStatus(historyRoute) === statusValue));
+
+    if (
+      matchingHistory.length > 0 &&
+      (!selectedRoute || !matchingHistory.some((historyRoute) => historyRoute.id === selectedRoute.id))
+    ) {
+      selectedRouteByLineKey.set(lineKey, matchingHistory[0].id);
+    }
 
     return matchesDriver && matchesClient && matchesDirection && matchesLine && matchesStatus;
   }).sort((a, b) => {
@@ -1787,6 +2192,7 @@ function renderTrackingChecklist() {
   const fragment = document.createDocumentFragment();
 
   configuredLines.forEach((option) => {
+    const routeHistory = getRouteHistoryForConfiguredLine(option);
     const route = getRouteForConfiguredLine(option);
     const count = route ? pointCountByRouteId.get(route.id) || 0 : 0;
     const card = document.createElement("article");
@@ -1803,6 +2209,23 @@ function renderTrackingChecklist() {
         <span>${option.nome_linha || "-"}</span>
         <small>${option.sentido || "-"} | ${count} registros</small>
         ${conductorText ? `<small>Condutor: ${escapeHtml(conductorText)}</small>` : ""}
+        ${
+          routeHistory.length > 1
+            ? `<label class="history-select">
+                <span>Historico (${routeHistory.length})</span>
+                <select data-action="history">
+                  ${routeHistory
+                    .map(
+                      (historyRoute) =>
+                        `<option value="${escapeHtml(historyRoute.id)}" ${
+                          historyRoute.id === route?.id ? "selected" : ""
+                        }>${escapeHtml(formatRouteHistoryOption(historyRoute))}</option>`
+                    )
+                    .join("")}
+                </select>
+              </label>`
+            : ""
+        }
       </div>
       <div class="checklist-actions">
         <button class="button secondary" type="button" data-action="view" ${route ? "" : "disabled"}>
@@ -1819,6 +2242,11 @@ function renderTrackingChecklist() {
       </div>
     `;
 
+    card.querySelector('[data-action="history"]')?.addEventListener("change", (event) => {
+      selectedRouteByLineKey.set(getConfiguredLineKey(option), event.target.value);
+      saveRouteHistorySelection();
+      renderTrackingChecklist();
+    });
     card.querySelector('[data-action="view"]')?.addEventListener("click", async () => {
       await selectRoute(route.id);
       openDetailModal();
@@ -1838,6 +2266,11 @@ function renderTrackingChecklist() {
 
 function renderRouteDetails(route, points) {
   currentRoutePoints = points;
+  updateDeleteRangeOptions(route ? points : []);
+  const currentPointIds = new Set(points.map((point) => String(point.id)));
+  selectedPointIds.forEach((id) => {
+    if (!currentPointIds.has(id)) selectedPointIds.delete(id);
+  });
   const visiblePoints = route ? filterPointsByView(points) : [];
   const manualPointCount = route ? points.filter(isManualPoint).length : 0;
   const trackPointCount = route
@@ -1871,21 +2304,27 @@ function renderRouteDetails(route, points) {
   deleteSelectedButton.disabled = !route;
   openMapButton.disabled = !route || visiblePoints.length === 0;
   editMapButton.disabled = !route || visiblePoints.length === 0;
+  undoPointOrderButton.disabled =
+    !lastPointOrderSnapshot ||
+    lastPointOrderSnapshot.routeId !== selectedRouteId ||
+    Boolean(savingPointId);
   exportKmlButton.disabled = !route || points.length === 0;
+  exportOrusButton.disabled = !route || trackPointCount < 2;
   exportJsonButton.disabled = !route || points.length === 0;
   exportExcelButton.disabled = !route || points.length === 0;
   renderRouteMap(visiblePoints);
+  updatePointSelectionControls(visiblePoints);
 
   if (!route) {
     pointsTable.innerHTML =
-      '<tr><td colspan="6" class="empty-cell">Nenhum trajeto selecionado.</td></tr>';
+      '<tr><td colspan="8" class="empty-cell">Nenhum trajeto selecionado.</td></tr>';
     editMapButton.disabled = true;
     return;
   }
 
   if (visiblePoints.length === 0) {
     pointsTable.innerHTML =
-      '<tr><td colspan="6" class="empty-cell">Nenhum registro para esta visualizacao.</td></tr>';
+      '<tr><td colspan="8" class="empty-cell">Nenhum registro para esta visualizacao.</td></tr>';
     editMapButton.disabled = true;
     return;
   }
@@ -1898,16 +2337,36 @@ function renderRouteDetails(route, points) {
 
       return `
         <tr class="${point.id === latestPointId ? "latest" : ""}">
+          <td class="selection-column"><input class="point-selection" type="checkbox" data-point-id="${escapeHtml(point.id)}" aria-label="Selecionar ponto ${escapeHtml(point.ordem_ponto)}" ${selectedPointIds.has(String(point.id)) ? "checked" : ""} /></td>
           <td>${point.ordem_ponto}</td>
           <td>${getPointTypeLabel(point.tipo_ponto)}</td>
           <td>${formatDate(point.data_hora_registro)}</td>
           <td>${formatNumber(point.latitude)}</td>
           <td>${formatNumber(point.longitude)}</td>
           <td><a class="map-link" href="${mapsUrl}" target="_blank" rel="noopener">Abrir</a></td>
+          <td>${point.tipo_ponto === "trajeto" ? `<button class="point-manual-button" type="button" data-manual-point-id="${escapeHtml(point.id)}">Tornar manual</button>` : `<span class="point-action-done">${escapeHtml(getPointTypeLabel(point.tipo_ponto))}</span>`}</td>
         </tr>
       `;
     })
     .join("");
+
+  pointsTable.querySelectorAll(".point-selection").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const pointId = String(checkbox.dataset.pointId);
+      if (checkbox.checked) selectedPointIds.add(pointId);
+      else selectedPointIds.delete(pointId);
+      updatePointSelectionControls(visiblePoints);
+    });
+  });
+
+  pointsTable.querySelectorAll(".point-manual-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const point = currentRoutePoints.find(
+        (item) => String(item.id) === String(button.dataset.manualPointId)
+      );
+      convertTrackPointToManual(point);
+    });
+  });
 }
 
 async function loadPointCounts(routeIds) {
@@ -2016,13 +2475,14 @@ async function loadRoutes() {
     .from("trajetos")
     .select("id, matricula_condutor, cliente, sentido, nome_linha, status, data_hora_inicio, data_hora_fim, created_at")
     .order("created_at", { ascending: false })
-    .limit(100);
+    .limit(500);
 
   if (error) {
     throw error;
   }
 
   routes = data || [];
+  cleanupSelectedRouteHistory();
   populateListBoxFilters();
   await loadPointCounts(routes.map((route) => route.id));
 
@@ -2168,6 +2628,12 @@ async function deleteRoute(route) {
       throw error;
     }
 
+    selectedRouteByLineKey.forEach((routeId, lineKey) => {
+      if (routeId === route.id) {
+        selectedRouteByLineKey.delete(lineKey);
+      }
+    });
+    saveRouteHistorySelection();
     selectedRouteId = null;
     setMessage("Trajeto excluido pelo painel.", "success");
     await refreshDashboard();
@@ -2180,6 +2646,191 @@ async function deleteRoute(route) {
 
 async function deleteSelectedRoute() {
   await deleteRoute(getSelectedRoute());
+}
+
+async function deleteSelectedPoints() {
+  const route = getSelectedRoute();
+  const pointIds = [...selectedPointIds];
+
+  if (!route || pointIds.length === 0 || savingPointId) {
+    setMessage("Selecione um ou mais pontos para excluir.", "error");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Excluir ${pointIds.length} ponto${pointIds.length === 1 ? "" : "s"} selecionado${pointIds.length === 1 ? "" : "s"}? A sequencia sera reorganizada.`
+  );
+  if (!confirmed) return;
+
+  savingPointId = "exclusao-em-massa";
+  routedLineCache.clear();
+  syncRefreshTimer();
+  updatePointSelectionControls();
+  setMessage(`Excluindo ${pointIds.length} ponto${pointIds.length === 1 ? "" : "s"}...`, "");
+
+  try {
+    const deletedPoints = currentRoutePoints.filter((point) =>
+      pointIds.includes(String(point.id))
+    );
+    const pointsBeforeDeletion = [...currentRoutePoints];
+    const { data, error } = await supabaseClient
+      .from("trajeto_pontos")
+      .delete()
+      .eq("trajeto_id", route.id)
+      .in("id", pointIds)
+      .select("id");
+
+    if (error) throw error;
+    if ((data || []).length !== pointIds.length) {
+      throw new Error("o Supabase nao confirmou a exclusao de todos os pontos");
+    }
+
+    const deletedIds = new Set(pointIds);
+    await renumberExistingRoutePoints(
+      getOrderedValidPoints(currentRoutePoints).filter((point) => !deletedIds.has(String(point.id)))
+    );
+    lastDeletedPointBatch = {
+      routeId: route.id,
+      deletedPoints,
+      pointsBeforeDeletion,
+    };
+    selectedPointIds.clear();
+    setMessage(`${pointIds.length} ponto${pointIds.length === 1 ? " excluido" : "s excluidos"} e sequencia reorganizada.`, "success");
+    await loadSelectedRouteDetails();
+  } catch (error) {
+    setMessage(getPointEditErrorMessage(error, "excluir em massa"), "error");
+    await loadSelectedRouteDetails();
+  } finally {
+    savingPointId = null;
+    updatePointSelectionControls();
+    syncRefreshTimer();
+  }
+}
+
+async function undoDeleteSelectedPoints() {
+  const batch = lastDeletedPointBatch;
+  const route = getSelectedRoute();
+
+  if (!batch || !route || batch.routeId !== route.id || savingPointId) {
+    setMessage("Nao ha uma exclusao recente para desfazer neste trajeto.", "error");
+    return;
+  }
+
+  savingPointId = "desfazer-exclusao";
+  routedLineCache.clear();
+  syncRefreshTimer();
+  updatePointSelectionControls();
+  setMessage("Restaurando pontos excluidos...", "");
+
+  try {
+    const tempBaseOrder = getSafeTemporaryOrderBase(currentRoutePoints, batch.deletedPoints.length);
+    const rowsToRestore = batch.deletedPoints.map((point, index) => ({
+      id: point.id,
+      trajeto_id: route.id,
+      latitude: point.latitude,
+      longitude: point.longitude,
+      data_hora_registro: point.data_hora_registro,
+      ordem_ponto: tempBaseOrder + index,
+      tipo_ponto: point.tipo_ponto,
+      precisao: point.precisao,
+    }));
+
+    const { data, error } = await supabaseClient
+      .from("trajeto_pontos")
+      .insert(rowsToRestore)
+      .select("id");
+
+    if (error) throw error;
+    if ((data || []).length !== rowsToRestore.length) {
+      throw new Error("o Supabase nao confirmou a restauracao de todos os pontos");
+    }
+
+    await renumberExistingRoutePoints(getOrderedValidPoints(batch.pointsBeforeDeletion));
+    const restoredCount = batch.deletedPoints.length;
+    lastDeletedPointBatch = null;
+    setMessage(
+      `${restoredCount} ponto${restoredCount === 1 ? " restaurado" : "s restaurados"} com sucesso.`,
+      "success"
+    );
+    await loadSelectedRouteDetails();
+  } catch (error) {
+    setMessage(getPointEditErrorMessage(error, "desfazer exclusao"), "error");
+    await loadSelectedRouteDetails();
+  } finally {
+    savingPointId = null;
+    updatePointSelectionControls();
+    syncRefreshTimer();
+  }
+}
+
+async function deletePointsByRange() {
+  const start = Number(deleteRangeStart.value);
+  const end = Number(deleteRangeEnd.value);
+
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    setMessage("Escolha o inicio e o fim do intervalo.", "error");
+    return;
+  }
+
+  const firstOrder = Math.min(start, end);
+  const lastOrder = Math.max(start, end);
+  const pointsInRange = currentRoutePoints.filter((point) => {
+    const order = Number(point.ordem_ponto);
+    return order >= firstOrder && order <= lastOrder;
+  });
+
+  if (pointsInRange.length === 0) {
+    setMessage("Nenhum ponto foi encontrado nesse intervalo.", "error");
+    return;
+  }
+
+  selectedPointIds.clear();
+  pointsInRange.forEach((point) => selectedPointIds.add(String(point.id)));
+  renderRouteDetails(getSelectedRoute(), currentRoutePoints);
+  await deleteSelectedPoints();
+}
+
+async function convertTrackPointToManual(point) {
+  if (!point || point.tipo_ponto !== "trajeto" || savingPointId) {
+    setMessage("Selecione um ponto de trajeto para tornar manual.", "error");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Tornar o ponto ${point.ordem_ponto} um ponto manual?`
+  );
+  if (!confirmed) return;
+
+  savingPointId = point.id;
+  syncRefreshTimer();
+  updatePointSelectionControls();
+  setMessage(`Convertendo o ponto ${point.ordem_ponto} para manual...`, "");
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("trajeto_pontos")
+      .update({ tipo_ponto: "manual" })
+      .eq("id", point.id)
+      .eq("trajeto_id", selectedRouteId)
+      .eq("tipo_ponto", "trajeto")
+      .select("id, tipo_ponto")
+      .single();
+
+    if (error) throw error;
+    if (!data?.id || data.tipo_ponto !== "manual") {
+      throw new Error("o Supabase nao confirmou a conversao do ponto");
+    }
+
+    setMessage(`Ponto ${point.ordem_ponto} convertido para manual.`, "success");
+    await loadSelectedRouteDetails();
+  } catch (error) {
+    setMessage(getPointEditErrorMessage(error, "tornar manual"), "error");
+    await loadSelectedRouteDetails();
+  } finally {
+    savingPointId = null;
+    updatePointSelectionControls();
+    syncRefreshTimer();
+  }
 }
 
 function syncRefreshTimer() {
@@ -2200,13 +2851,22 @@ mapModalBackdrop.addEventListener("click", closeMapModal);
 closeDetailButton.addEventListener("click", closeDetailModal);
 detailModalBackdrop.addEventListener("click", closeDetailModal);
 exportKmlButton.addEventListener("click", () => exportSelectedRoute("kml"));
+exportOrusButton.addEventListener("click", () => exportSelectedRoute("orus"));
 exportJsonButton.addEventListener("click", () => exportSelectedRoute("json"));
 exportExcelButton.addEventListener("click", () => exportSelectedRoute("excel"));
 fitMapButton.addEventListener("click", () => {
   mapUserAdjustedView = false;
   fitRouteMap();
 });
+mapSearchButton.addEventListener("click", searchMapPoint);
+mapPointSearch.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    searchMapPoint(event);
+  }
+});
 editMapButton.addEventListener("click", () => setMapEditing(!isEditingMapPoints));
+undoPointOrderButton.addEventListener("click", undoLastPointOrderChange);
 mapViewInputs.forEach((input) => {
   input.addEventListener("change", () => {
     syncMapViewInputs(input.value);
@@ -2217,6 +2877,20 @@ mapViewInputs.forEach((input) => {
 finishSelectedButton.addEventListener("click", finishSelectedRoute);
 validateSelectedButton.addEventListener("click", validateSelectedRoute);
 deleteSelectedButton.addEventListener("click", deleteSelectedRoute);
+deleteSelectedPointsButton.addEventListener("click", deleteSelectedPoints);
+undoDeletePointsButton.addEventListener("click", undoDeleteSelectedPoints);
+deletePointRangeButton.addEventListener("click", deletePointsByRange);
+[deleteRangeStart, deleteRangeEnd].forEach((select) => {
+  select.addEventListener("change", () => updatePointSelectionControls());
+});
+selectAllPoints.addEventListener("change", () => {
+  filterPointsByView(currentRoutePoints).forEach((point) => {
+    const pointId = String(point.id);
+    if (selectAllPoints.checked) selectedPointIds.add(pointId);
+    else selectedPointIds.delete(pointId);
+  });
+  renderRouteDetails(getSelectedRoute(), currentRoutePoints);
+});
 autoRefreshToggle.addEventListener("change", syncRefreshTimer);
 driverFilter.addEventListener("input", renderFilteredViews);
 clientFilter.addEventListener("change", () => {
@@ -2237,5 +2911,6 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+loadRouteHistorySelection();
 refreshDashboard();
 syncRefreshTimer();
