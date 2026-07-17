@@ -825,7 +825,7 @@ async function restoreActiveRoute() {
       .from("trajetos")
       .select("id, matricula_condutor, cliente, sentido, nome_linha, status, data_hora_inicio, data_hora_fim")
       .eq("id", savedRouteId)
-      .single();
+      .maybeSingle();
 
     if (routeError) {
       throw routeError;
@@ -867,6 +867,15 @@ async function restoreActiveRoute() {
     startRouteTracking();
     setMessage("Trajeto ativo restaurado. Voce pode registrar ponto ou finalizar.", "success");
   } catch (error) {
+    // Um trajeto pode ter sido excluído/finalizado pelo painel enquanto seu ID
+    // ainda permaneceu salvo neste navegador. Nesse caso, descarte a referência
+    // antiga para não bloquear a abertura do formulário.
+    if (error?.code === "PGRST116") {
+      clearSavedRoute();
+      setMessage("");
+      return;
+    }
+
     setMessage(`Nao foi possivel restaurar o trajeto: ${error.message}`, "error");
   }
 }
