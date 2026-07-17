@@ -25,6 +25,10 @@
           <h1>Painel de Pontos</h1>
         </div>
         <div class="topbar-actions">
+          <button class="button secondary help-questions-button" id="openHelpQuestionsButton" type="button">
+            Perguntas da ajuda
+            <span id="pendingHelpCount">0</span>
+          </button>
           <label class="live-toggle">
             <input id="autoRefreshToggle" type="checkbox" checked />
             <span>Ao vivo</span>
@@ -353,6 +357,77 @@
           </div>
         </div>
         <div id="routeMap" class="route-map"></div>
+      </section>
+    </div>
+
+    <div class="help-admin-modal hidden" id="helpAdminModal" role="dialog" aria-modal="true" aria-labelledby="helpAdminTitle">
+      <div class="help-admin-backdrop" id="helpAdminBackdrop"></div>
+      <section class="help-admin-dialog">
+        <header class="help-admin-header">
+          <div>
+            <p class="eyebrow">Base de conhecimento</p>
+            <h2 id="helpAdminTitle">Perguntas não respondidas</h2>
+          </div>
+          <button class="button secondary" id="closeHelpAdminButton" type="button">Fechar</button>
+        </header>
+        <div class="help-admin-toolbar">
+          <label>
+            Exibir
+            <select id="helpQuestionStatusFilter">
+              <option value="pendente">Pendentes</option>
+              <option value="respondida">Respondidas</option>
+              <option value="">Todas</option>
+            </select>
+          </label>
+          <button class="button danger" id="deleteHelpQuestionButton" type="button" disabled>
+            Excluir pergunta e resposta
+          </button>
+        </div>
+        <div class="help-admin-content">
+          <aside class="help-question-list" id="helpQuestionList">
+            <p class="empty-cell">Carregando perguntas...</p>
+          </aside>
+          <form class="help-answer-form" id="helpAnswerForm">
+            <input id="helpQuestionId" type="hidden" />
+            <label>
+              <span>Pergunta recebida</span>
+              <textarea id="helpOriginalQuestion" rows="3" readonly></textarea>
+            </label>
+            <fieldset class="help-missing-line-fields hidden" id="helpMissingLineFields">
+              <legend>Cadastrar linha solicitada</legend>
+              <label>
+                <span>Cliente</span>
+                <select id="helpLineClient"></select>
+              </label>
+              <label>
+                <span>Sentido</span>
+                <select id="helpLineDirection">
+                  <option value="">Selecione</option>
+                  <option value="Entrada">Entrada</option>
+                  <option value="Saída">Saída</option>
+                </select>
+              </label>
+              <label>
+                <span>Linha</span>
+                <input id="helpLineName" type="text" placeholder="Nome ou número da linha" />
+              </label>
+              <button class="button secondary" id="addRequestedLineButton" type="button">
+                Adicionar linha ao banco
+              </button>
+            </fieldset>
+            <label>
+              <span>Pergunta corrigida</span>
+              <textarea id="helpCorrectedQuestion" rows="3" placeholder="Corrija os erros de português da pergunta"></textarea>
+            </label>
+            <label>
+              <span>Resposta para o condutor</span>
+              <textarea id="helpAnswerText" rows="6" placeholder="Digite uma resposta clara e objetiva"></textarea>
+            </label>
+            <button class="button secondary" id="saveHelpAnswerButton" type="submit" disabled>
+              Salvar resposta
+            </button>
+          </form>
+        </div>
       </section>
     </div>
   </body>

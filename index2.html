@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Registro de Trajeto</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="route-options.js"></script>
+    <script defer src="app2.js"></script>
+  </head>
+  <body class="test-app">
+    <main class="app-shell">
+      <section class="panel" id="startPanel">
+        <div class="brand-block">
+          <div class="brand-identity">
+            <img
+              class="company-logo"
+              src="logo-princesa-doeste.png"
+              alt="Princesa D'Oeste - Levando Pessoas"
+            />
+            <p class="eyebrow">Controle de rota</p>
+            <h1>Registro de Trajeto</h1>
+          </div>
+          <button class="help-open-button" id="openHelpButton" type="button" aria-haspopup="dialog">
+            <span aria-hidden="true">?</span>
+            Ajuda
+          </button>
+        </div>
+
+        <form id="startForm" class="form-stack">
+          <label class="field">
+            <span>Matrícula do condutor</span>
+            <input
+              id="matriculaCondutor"
+              name="matriculaCondutor"
+              type="text"
+              autocomplete="off"
+              inputmode="text"
+              required
+              placeholder="Ex.: 12345"
+            />
+          </label>
+
+          <label class="field">
+            <span>Cliente</span>
+            <select
+              id="cliente"
+              name="cliente"
+              required
+            >
+              <option value="">Selecione o cliente</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Sentido</span>
+            <select id="sentido" name="sentido" required disabled>
+              <option value="">Selecione o sentido</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Linha</span>
+            <select id="nomeLinha" name="nomeLinha" required disabled>
+              <option value="">Selecione a linha</option>
+            </select>
+          </label>
+
+          <button class="primary-button hidden" type="submit" id="startButton">
+            Cheguei no primeiro ponto
+          </button>
+        </form>
+      </section>
+
+      <section class="panel route-panel hidden" id="routePanel" aria-live="polite">
+        <div class="route-header">
+          <div>
+            <p class="eyebrow">Trajeto ativo</p>
+            <h1 id="routeStatusTitle">Em andamento</h1>
+          </div>
+          <span class="status-pill" id="statusPill">ativo</span>
+        </div>
+
+        <dl class="route-data">
+          <div>
+            <dt>Matrícula do condutor</dt>
+            <dd id="activeMatricula">-</dd>
+          </div>
+          <div>
+            <dt>Cliente</dt>
+            <dd id="activeCliente">-</dd>
+          </div>
+          <div>
+            <dt>Sentido</dt>
+            <dd id="activeSentido">-</dd>
+          </div>
+          <div>
+            <dt>Linha</dt>
+            <dd id="activeLinha">-</dd>
+          </div>
+          <div>
+            <dt>Pontos manuais registrados</dt>
+            <dd id="pointCount">0</dd>
+          </div>
+          <div>
+            <dt>Gravacao do trajeto</dt>
+            <dd id="trackingStatus">-</dd>
+          </div>
+        </dl>
+
+        <section class="route-reminder" aria-label="Orientacao durante a rota">
+          <strong>Durante a rota</strong>
+          <span>Mantenha esta tela aberta. Use Registrar ponto quando estiver no ponto durante a rota.</span>
+        </section>
+
+        <div class="actions">
+          <button class="primary-button" type="button" id="registerPointButton">
+            Registrar ponto
+          </button>
+          <button class="secondary-button" type="button" id="finishRouteButton">
+            Finalizar trajeto
+          </button>
+        </div>
+      </section>
+
+      <p class="message" id="message" role="status" aria-live="polite"></p>
+      <footer class="system-version">
+        Versao <span id="systemVersion">-</span>
+      </footer>
+    </main>
+
+    <div class="notification hidden" id="notification" role="dialog" aria-modal="true" aria-labelledby="notificationText">
+      <div class="notification-card">
+        <div class="notification-icon hidden" id="notificationIcon" aria-hidden="true">
+          <span>!</span>
+        </div>
+        <strong class="notification-title hidden" id="notificationTitle"></strong>
+        <p id="notificationText"></p>
+        <button type="button" id="notificationOkButton">OK</button>
+      </div>
+    </div>
+
+    <div class="help-modal hidden" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpModalTitle">
+      <div class="help-backdrop" id="helpBackdrop"></div>
+      <section class="help-dialog">
+        <header class="help-header">
+          <div>
+            <p class="eyebrow">Suporte ao condutor</p>
+            <h2 id="helpModalTitle">Como podemos ajudar?</h2>
+          </div>
+          <button id="closeHelpButton" type="button" aria-label="Fechar ajuda">×</button>
+        </header>
+        <div class="help-content">
+          <section class="help-guide" aria-label="Fluxo rápido">
+            <h3>Fluxo rápido</h3>
+            <ol>
+              <li>Preencha matrícula, cliente, sentido e linha.</li>
+              <li>Confira o botão azul e toque nele somente no local indicado.</li>
+              <li>Mantenha o aparelho ligado e o navegador aberto durante o trajeto.</li>
+              <li>Use <strong>Registrar ponto</strong> quando estiver em um ponto da rota.</li>
+              <li>Ao chegar ao destino indicado, toque no botão de conclusão.</li>
+            </ol>
+            <p>As linhas de entrada e saída devem ser percorridas por completo.</p>
+          </section>
+          <section class="help-chat" aria-label="Chat de ajuda">
+            <h3>Converse com a ajuda</h3>
+            <div class="help-messages" id="helpMessages" aria-live="polite">
+              <div class="help-message assistant">
+                Olá! Posso ajudar com início da rota, entrada, saída, pontos, localização e finalização.
+              </div>
+            </div>
+            <div class="help-suggestions" aria-label="Perguntas rápidas">
+              <button type="button" data-help-question="Como iniciar a rota?">Iniciar rota</button>
+              <button type="button" data-help-question="Quando registrar um ponto?">Registrar ponto</button>
+              <button type="button" data-help-question="Como finalizar?">Finalizar</button>
+              <button type="button" data-help-question="A localização não funciona">Localização</button>
+              <button type="button" data-help-question="Minha linha não aparece aqui">Minha linha não aparece</button>
+            </div>
+            <form class="help-chat-form" id="helpChatForm">
+              <label class="sr-only" for="helpQuestion">Digite sua dúvida</label>
+              <input id="helpQuestion" type="text" placeholder="Digite sua dúvida..." autocomplete="off" />
+              <button type="submit">Enviar</button>
+            </form>
+          </section>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

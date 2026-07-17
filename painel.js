@@ -6,7 +6,7 @@ const POINT_UPDATE_CONCURRENCY = 25;
 const ROUTING_SERVICE_URL = "https://router.project-osrm.org/route/v1/driving";
 
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-const routeOptions = window.ROUTE_OPTIONS || [];
+let routeOptions = [...(window.ROUTE_OPTIONS || [])];
 const conductors = window.CONDUCTOR_BASE || [];
 const conductorByRegistration = new Map(
   conductors.map((conductor) => [String(conductor.matricula || "").trim(), conductor])
@@ -74,6 +74,25 @@ const checklistStatus = document.querySelector("#checklistStatus");
 const detailModal = document.querySelector("#detailModal");
 const detailModalBackdrop = document.querySelector("#detailModalBackdrop");
 const closeDetailButton = document.querySelector("#closeDetailButton");
+const openHelpQuestionsButton = document.querySelector("#openHelpQuestionsButton");
+const pendingHelpCount = document.querySelector("#pendingHelpCount");
+const helpAdminModal = document.querySelector("#helpAdminModal");
+const helpAdminBackdrop = document.querySelector("#helpAdminBackdrop");
+const closeHelpAdminButton = document.querySelector("#closeHelpAdminButton");
+const helpQuestionList = document.querySelector("#helpQuestionList");
+const helpAnswerForm = document.querySelector("#helpAnswerForm");
+const helpQuestionId = document.querySelector("#helpQuestionId");
+const helpOriginalQuestion = document.querySelector("#helpOriginalQuestion");
+const helpCorrectedQuestion = document.querySelector("#helpCorrectedQuestion");
+const helpAnswerText = document.querySelector("#helpAnswerText");
+const saveHelpAnswerButton = document.querySelector("#saveHelpAnswerButton");
+const helpQuestionStatusFilter = document.querySelector("#helpQuestionStatusFilter");
+const deleteHelpQuestionButton = document.querySelector("#deleteHelpQuestionButton");
+const helpMissingLineFields = document.querySelector("#helpMissingLineFields");
+const helpLineClient = document.querySelector("#helpLineClient");
+const helpLineDirection = document.querySelector("#helpLineDirection");
+const helpLineName = document.querySelector("#helpLineName");
+const addRequestedLineButton = document.querySelector("#addRequestedLineButton");
 
 let routes = [];
 let pointCountByRouteId = new Map();
@@ -103,6 +122,7 @@ let routeLineRequestId = 0;
 let suppressMapClickUntil = 0;
 const routedLineCache = new Map();
 const routeMarkerByPointId = new Map();
+let pendingHelpQuestions = [];
 
 function updatePointSelectionControls(visiblePoints = filterPointsByView(currentRoutePoints)) {
   const visibleIds = visiblePoints.map((point) => String(point.id));
@@ -2470,6 +2490,7 @@ async function loadSelectedRouteDetails() {
 async function loadRoutes() {
   setMessage("");
   routeListStatus.textContent = "Carregando...";
+  await loadDatabaseConfiguredLines();
 
   const { data, error } = await supabaseClient
     .from("trajetos")
@@ -2646,6 +2667,292 @@ async function deleteRoute(route) {
 
 async function deleteSelectedRoute() {
   await deleteRoute(getSelectedRoute());
+}
+
+async function loadPendingHelpCount() {
+  const { count, error } = await supabaseClient
+    .from("ajuda_perguntas")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "pendente");
+
+  if (error) {
+    pendingHelpCount.textContent = "-";
+    openHelpQuestionsButton.title =
+      "Execute a atualização do arquivo supabase.sql para ativar as perguntas da ajuda.";
+    return;
+  }
+
+  pendingHelpCount.textContent = String(count || 0);
+  openHelpQuestionsButton.title = `${count || 0} pergunta${count === 1 ? "" : "s"} aguardando resposta`;
+}
+
+async function loadDatabaseConfiguredLines() {
+  const { data, error } = await supabaseClient
+    .from("linhas_configuradas")
+    .select("cliente, sentido, nome_linha");
+
+  if (error) return;
+
+  const merged = new Map(
+    routeOptions.map((option) => [
+      `${option.cliente}||${option.sentido}||${option.nome_linha}`,
+      option,
+    ])
+  );
+  (data || []).forEach((option) => {
+    merged.set(
+      `${option.cliente}||${option.sentido}||${option.nome_linha}`,
+      option
+    );
+  });
+  routeOptions = [...merged.values()];
+}
+
+function populateHelpLineClients(selectedClient = "") {
+  const clients = uniqueSorted([
+    ...routeOptions.map((option) => option.cliente),
+    ...routes.map((route) => route.cliente),
+  ]);
+  helpLineClient.innerHTML = '<option value="">Selecione o cliente</option>';
+  clients.forEach((cliente) => {
+    const option = document.createElement("option");
+    option.value = cliente;
+    option.textContent = cliente;
+    helpLineClient.appendChild(option);
+  });
+  helpLineClient.value = clients.includes(selectedClient) ? selectedClient : "";
+}
+
+function parseMissingLineRequest(text) {
+  if (!String(text || "").toLowerCase().includes("minha linha não aparece")) {
+    return null;
+  }
+
+  return {
+    cliente: text.match(/Cliente:\s*(.*?)\.\s*Sentido:/i)?.[1]?.trim() || "",
+    sentido: text.match(/Sentido:\s*(.*?)\.\s*Linha informada:/i)?.[1]?.trim() || "",
+    linha: text.match(/Linha informada:\s*(.*?)\.?$/i)?.[1]?.trim().replace(/\.$/, "") || "",
+  };
+}
+
+function clearHelpAnswerForm() {
+  helpQuestionId.value = "";
+  helpOriginalQuestion.value = "";
+  helpCorrectedQuestion.value = "";
+  helpAnswerText.value = "";
+  saveHelpAnswerButton.disabled = true;
+  deleteHelpQuestionButton.disabled = true;
+  helpMissingLineFields.classList.add("hidden");
+}
+
+function selectPendingHelpQuestion(question) {
+  helpQuestionId.value = question.id;
+  helpOriginalQuestion.value = question.pergunta_original;
+  helpCorrectedQuestion.value =
+    question.pergunta_corrigida || question.pergunta_original;
+  helpAnswerText.value = question.resposta || "";
+  saveHelpAnswerButton.disabled = false;
+  deleteHelpQuestionButton.disabled = false;
+  const missingLine = parseMissingLineRequest(question.pergunta_original);
+  helpMissingLineFields.classList.toggle("hidden", !missingLine);
+  if (missingLine) {
+    populateHelpLineClients(missingLine.cliente);
+    helpLineDirection.value = ["Entrada", "Saída"].includes(missingLine.sentido)
+      ? missingLine.sentido
+      : "";
+    helpLineName.value = missingLine.linha;
+  }
+
+  helpQuestionList.querySelectorAll(".help-question-card").forEach((card) => {
+    card.classList.toggle("selected", card.dataset.questionId === question.id);
+  });
+  helpCorrectedQuestion.focus();
+}
+
+function renderPendingHelpQuestions() {
+  helpQuestionList.innerHTML = "";
+
+  if (pendingHelpQuestions.length === 0) {
+    helpQuestionList.innerHTML =
+      `<p class="empty-cell">Nenhuma pergunta ${
+        helpQuestionStatusFilter.value === "respondida" ? "respondida" : "aguardando resposta"
+      }.</p>`;
+    clearHelpAnswerForm();
+    return;
+  }
+
+  pendingHelpQuestions.forEach((question) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "help-question-card";
+    button.dataset.questionId = question.id;
+    button.innerHTML = `
+      <strong>${escapeHtml(question.pergunta_original)}</strong>
+      <em>${question.status === "respondida" ? "Respondida" : "Pendente"}</em>
+      <span>${question.quantidade_perguntas || 1} ocorrência${question.quantidade_perguntas === 1 ? "" : "s"}</span>
+      <small>${escapeHtml(formatDate(question.created_at))}</small>
+    `;
+    button.addEventListener("click", () => selectPendingHelpQuestion(question));
+    helpQuestionList.appendChild(button);
+  });
+
+  selectPendingHelpQuestion(pendingHelpQuestions[0]);
+}
+
+async function loadPendingHelpQuestions() {
+  helpQuestionList.innerHTML = '<p class="empty-cell">Carregando perguntas...</p>';
+  clearHelpAnswerForm();
+
+  let query = supabaseClient
+    .from("ajuda_perguntas")
+    .select("id, pergunta_original, pergunta_corrigida, resposta, status, quantidade_perguntas, created_at")
+    .order("quantidade_perguntas", { ascending: false })
+    .order("created_at", { ascending: true });
+  if (helpQuestionStatusFilter.value) {
+    query = query.eq("status", helpQuestionStatusFilter.value);
+  }
+  const { data, error } = await query;
+
+  if (error) {
+    helpQuestionList.innerHTML =
+      '<p class="empty-cell">Recurso ainda não configurado. Execute o SQL atualizado no Supabase.</p>';
+    return;
+  }
+
+  pendingHelpQuestions = data || [];
+  renderPendingHelpQuestions();
+}
+
+async function openHelpAdmin() {
+  helpAdminModal.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  await loadPendingHelpQuestions();
+}
+
+function closeHelpAdmin() {
+  helpAdminModal.classList.add("hidden");
+  if (!isMapModalOpen && !isDetailModalOpen) {
+    document.body.classList.remove("modal-open");
+  }
+}
+
+async function saveHelpAnswer(event) {
+  event.preventDefault();
+  const id = helpQuestionId.value;
+  const correctedQuestion = helpCorrectedQuestion.value.trim();
+  const answer = helpAnswerText.value.trim();
+
+  if (!id || !correctedQuestion || !answer) {
+    setMessage("Corrija a pergunta e preencha a resposta antes de salvar.", "error");
+    return;
+  }
+
+  try {
+    saveHelpAnswerButton.disabled = true;
+    saveHelpAnswerButton.textContent = "Salvando...";
+    const { error } = await supabaseClient
+      .from("ajuda_perguntas")
+      .update({
+        pergunta_corrigida: correctedQuestion,
+        resposta: answer,
+        status: "respondida",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+
+    if (error) throw error;
+
+    setMessage("Pergunta corrigida e resposta adicionada à ajuda.", "success");
+    await Promise.all([loadPendingHelpQuestions(), loadPendingHelpCount()]);
+  } catch (error) {
+    setMessage(`Erro ao salvar resposta: ${error.message}`, "error");
+  } finally {
+    saveHelpAnswerButton.textContent = "Salvar resposta";
+    saveHelpAnswerButton.disabled = !helpQuestionId.value;
+  }
+}
+
+async function deleteSelectedHelpQuestion() {
+  const id = helpQuestionId.value;
+  if (!id) return;
+
+  const confirmed = window.confirm(
+    "Excluir permanentemente esta pergunta e a resposta cadastrada?"
+  );
+  if (!confirmed) return;
+
+  try {
+    deleteHelpQuestionButton.disabled = true;
+    const { error } = await supabaseClient
+      .from("ajuda_perguntas")
+      .delete()
+      .eq("id", id);
+    if (error) throw error;
+
+    setMessage("Pergunta e resposta excluídas da base de ajuda.", "success");
+    await Promise.all([loadPendingHelpQuestions(), loadPendingHelpCount()]);
+  } catch (error) {
+    setMessage(`Erro ao excluir pergunta: ${error.message}`, "error");
+    deleteHelpQuestionButton.disabled = false;
+  }
+}
+
+async function addRequestedLine() {
+  const questionId = helpQuestionId.value;
+  const cliente = helpLineClient.value.trim();
+  const sentido = helpLineDirection.value;
+  const nomeLinha = helpLineName.value.trim();
+
+  if (!questionId || !cliente || !sentido || !nomeLinha) {
+    setMessage("Selecione cliente e sentido e informe a linha.", "error");
+    return;
+  }
+
+  try {
+    addRequestedLineButton.disabled = true;
+    addRequestedLineButton.textContent = "Adicionando...";
+    const { error: lineError } = await supabaseClient
+      .from("linhas_configuradas")
+      .upsert(
+        { cliente, sentido, nome_linha: nomeLinha },
+        { onConflict: "cliente,sentido,nome_linha" }
+      );
+    if (lineError) throw lineError;
+
+    const correctedQuestion =
+      `Minha linha não aparece para o cliente ${cliente}, no sentido ${sentido}: ${nomeLinha}.`;
+    const answer =
+      `A linha ${nomeLinha}, sentido ${sentido}, foi cadastrada para o cliente ${cliente}. Atualize a página e tente novamente.`;
+    const { error: questionError } = await supabaseClient
+      .from("ajuda_perguntas")
+      .update({
+        pergunta_corrigida: correctedQuestion,
+        resposta: answer,
+        status: "respondida",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", questionId);
+    if (questionError) throw questionError;
+
+    const lineKey = `${cliente}||${sentido}||${nomeLinha}`;
+    if (
+      !routeOptions.some(
+        (option) =>
+          `${option.cliente}||${option.sentido}||${option.nome_linha}` === lineKey
+      )
+    ) {
+      routeOptions.push({ cliente, sentido, nome_linha: nomeLinha });
+    }
+    populateListBoxFilters();
+    renderTrackingChecklist();
+    setMessage("Linha adicionada ao banco e solicitação respondida.", "success");
+    await Promise.all([loadPendingHelpQuestions(), loadPendingHelpCount()]);
+  } catch (error) {
+    setMessage(`Erro ao adicionar linha: ${error.message}`, "error");
+  } finally {
+    addRequestedLineButton.disabled = false;
+    addRequestedLineButton.textContent = "Adicionar linha ao banco";
+  }
 }
 
 async function deleteSelectedPoints() {
@@ -2903,14 +3210,24 @@ directionFilter.addEventListener("change", () => {
 });
 lineFilter.addEventListener("change", renderFilteredViews);
 statusFilter.addEventListener("change", renderFilteredViews);
+openHelpQuestionsButton.addEventListener("click", openHelpAdmin);
+closeHelpAdminButton.addEventListener("click", closeHelpAdmin);
+helpAdminBackdrop.addEventListener("click", closeHelpAdmin);
+helpAnswerForm.addEventListener("submit", saveHelpAnswer);
+helpQuestionStatusFilter.addEventListener("change", loadPendingHelpQuestions);
+deleteHelpQuestionButton.addEventListener("click", deleteSelectedHelpQuestion);
+addRequestedLineButton.addEventListener("click", addRequestedLine);
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && isMapModalOpen) {
     closeMapModal();
   } else if (event.key === "Escape" && isDetailModalOpen) {
     closeDetailModal();
+  } else if (event.key === "Escape" && !helpAdminModal.classList.contains("hidden")) {
+    closeHelpAdmin();
   }
 });
 
 loadRouteHistorySelection();
 refreshDashboard();
+loadPendingHelpCount();
 syncRefreshTimer();
