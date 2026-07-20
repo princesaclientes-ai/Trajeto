@@ -519,8 +519,10 @@ function getExportName(route) {
 }
 
 function getRouteTrackPoints(points) {
-  const trackPoints = points.filter((point) => point.tipo_ponto === "trajeto");
-  return trackPoints.length > 0 ? trackPoints : points;
+  // O trajeto exportado representa a sequencia completa capturada. Pontos
+  // manuais continuam aparecendo separadamente em "Pontos", mas tambem fazem
+  // parte da linha/aba "Trajeto" na ordem em que foram registrados.
+  return points;
 }
 
 function getRouteStopPoints(points) {
