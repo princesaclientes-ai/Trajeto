@@ -1123,6 +1123,25 @@ function isManualPoint(point) {
   return point.tipo_ponto === "primeiro" || point.tipo_ponto === "manual";
 }
 
+function getDuplicateCoordinateKeySet(points) {
+  const counts = new Map();
+
+  points.forEach((point) => {
+    if (!isManualPoint(point) || !Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) {
+      return;
+    }
+
+    const key = getCoordinateKey(point);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+
+  return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key));
+}
+
+function isDuplicateCoordinatePoint(point, points) {
+  return isManualPoint(point) && getDuplicateCoordinateKeySet(points).has(getCoordinateKey(point));
+}
+
 function filterPointsByView(points) {
   const viewMode = getMapViewMode();
 
@@ -1134,6 +1153,11 @@ function filterPointsByView(points) {
     return points.filter((point) => point.tipo_ponto === "trajeto");
   }
 
+  if (viewMode === "duplicados") {
+    const duplicateKeys = getDuplicateCoordinateKeySet(points);
+    return points.filter((point) => isManualPoint(point) && duplicateKeys.has(getCoordinateKey(point)));
+  }
+
   return points;
 }
 
@@ -1142,6 +1166,7 @@ function getMapViewLabel() {
     ambos: "registros",
     pontos: "pontos",
     trajeto: "pontos de trajeto",
+    duplicados: "coordenadas duplicadas",
   };
 
   return labels[getMapViewMode()] || "registros";
@@ -1199,8 +1224,8 @@ function ensureRouteMap() {
   return routeMap;
 }
 
-function getMarkerIcon(point) {
-  const typeClass = point.tipo_ponto || "trajeto";
+function getMarkerIcon(point, isDuplicate = false) {
+  const typeClass = isDuplicate ? "duplicado" : point.tipo_ponto || "trajeto";
 
   return L.divIcon({
     className: "",
@@ -1220,6 +1245,55 @@ function getOrderedValidPoints(points) {
   return [...points]
     .filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude))
     .sort((a, b) => a.ordem_ponto - b.ordem_ponto);
+}
+
+function getCoordinateKey(point) {
+  return `${formatNumber(point.latitude)}|${formatNumber(point.longitude)}`;
+}
+
+function getOverlapDisplayPoints(points) {
+  const duplicateKeys = getDuplicateCoordinateKeySet(points);
+  const groups = new Map();
+  const displayById = new Map();
+
+  points.forEach((point) => {
+    const key = getCoordinateKey(point);
+
+    if (!isManualPoint(point) || !duplicateKeys.has(key)) {
+      displayById.set(String(point.id), {
+        point,
+        latitude: point.latitude,
+        longitude: point.longitude,
+        overlapCount: 1,
+        overlapIndex: 0,
+        isDuplicateManual: false,
+      });
+      return;
+    }
+
+    const group = groups.get(key) || [];
+    group.push(point);
+    groups.set(key, group);
+  });
+
+  groups.forEach((group) => {
+    const orderedGroup = [...group].sort((a, b) => a.ordem_ponto - b.ordem_ponto);
+    const radius = Math.min(0.00016, 0.000055 + orderedGroup.length * 0.000006);
+
+    orderedGroup.forEach((point, index) => {
+      const angle = -Math.PI / 2 + (Math.PI * 2 * index) / orderedGroup.length;
+      displayById.set(String(point.id), {
+        point,
+        latitude: point.latitude + Math.sin(angle) * radius,
+        longitude: point.longitude + Math.cos(angle) * radius,
+        overlapCount: orderedGroup.length,
+        overlapIndex: index + 1,
+        isDuplicateManual: true,
+      });
+    });
+  });
+
+  return points.map((point) => displayById.get(String(point.id))).filter(Boolean);
 }
 
 function getPointDistanceToSegment(point, segmentStart, segmentEnd) {
@@ -1362,7 +1436,7 @@ async function fetchRoutedLatLngs(points) {
 }
 
 async function drawRoutedLine(validPoints, fallbackLatLngs, requestId) {
-  if (validPoints.length < 2 || getMapViewMode() === "pontos" || isEditingMapPoints) {
+  if (validPoints.length < 2 || ["pontos", "duplicados"].includes(getMapViewMode()) || isEditingMapPoints) {
     return;
   }
 
@@ -1791,7 +1865,7 @@ function closeMapModal() {
   }
 }
 
-function createPointPopupContent(point, maxOrder) {
+function createPointPopupContent(point, maxOrder, overlapInfo = null) {
   const container = document.createElement("div");
   container.className = "point-popup-content";
 
@@ -1801,6 +1875,12 @@ function createPointPopupContent(point, maxOrder) {
     `Horario: ${escapeHtml(formatDate(point.data_hora_registro))}`,
     `LatLng: ${escapeHtml(formatNumber(point.latitude))}, ${escapeHtml(formatNumber(point.longitude))}`,
   ];
+
+  if (overlapInfo?.overlapCount > 1) {
+    lines.push(
+      `<span class="popup-overlap-note">Mesmo local de ${overlapInfo.overlapCount} pontos. Marcador aberto apenas no mapa.</span>`
+    );
+  }
 
   container.innerHTML = lines.join("<br>");
   const coordinates = `${formatNumber(point.latitude)}, ${formatNumber(point.longitude)}`;
@@ -1893,18 +1973,24 @@ function createPointPopupContent(point, maxOrder) {
 
 function drawRouteMarkers(validPoints) {
   const maxOrder = getOrderedValidPoints(currentRoutePoints).length || validPoints.length;
-  validPoints.forEach((point) => {
-    const marker = L.marker([point.latitude, point.longitude], {
-      icon: getMarkerIcon(point),
-      title: `Ponto ${point.ordem_ponto}`,
-      draggable: isEditingMapPoints,
+  const displayPoints = getOverlapDisplayPoints(validPoints);
+
+  displayPoints.forEach((displayPoint) => {
+    const point = displayPoint.point;
+    const isVisuallyOffset = displayPoint.isDuplicateManual;
+    const marker = L.marker([displayPoint.latitude, displayPoint.longitude], {
+      icon: getMarkerIcon(point, displayPoint.isDuplicateManual),
+      title: isVisuallyOffset
+        ? `Ponto ${point.ordem_ponto} - mesmo local de ${displayPoint.overlapCount} pontos`
+        : `Ponto ${point.ordem_ponto}`,
+      draggable: isEditingMapPoints && !isVisuallyOffset,
     })
-      .bindPopup(createPointPopupContent(point, maxOrder))
+      .bindPopup(createPointPopupContent(point, maxOrder, displayPoint))
       .addTo(routeMapLayer);
 
     routeMarkerByPointId.set(String(point.id), marker);
 
-    if (isEditingMapPoints) {
+    if (isEditingMapPoints && !isVisuallyOffset) {
       marker.on("dragstart", () => {
         suppressMapClickUntil = Date.now() + 800;
       });
@@ -1969,7 +2055,7 @@ function renderRouteMap(points) {
   currentMapLatLngs = latLngs;
   fitMapButton.disabled = false;
 
-  if (latLngs.length > 1 && getMapViewMode() !== "pontos") {
+  if (latLngs.length > 1 && ["ambos", "trajeto"].includes(getMapViewMode())) {
     const cachedLatLngs = routedLineCache.get(pointSignature);
 
     drawRouteLine(cachedLatLngs || latLngs, cachedLatLngs
@@ -2007,7 +2093,7 @@ function renderRouteMap(points) {
 
   renderedMapRouteId = selectedRouteId;
   renderedPointSignature = pointSignature;
-  if (latLngs.length > 1 && getMapViewMode() !== "pontos") {
+  if (latLngs.length > 1 && ["ambos", "trajeto"].includes(getMapViewMode())) {
     mapStatus.textContent = routedLineCache.has(pointSignature)
       ? `${validPoints.length} ${getMapViewLabel()} no mapa - rota por ruas`
       : isEditingMapPoints

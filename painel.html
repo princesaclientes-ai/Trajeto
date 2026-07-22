@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
@@ -234,6 +234,10 @@
                   <span>Pontos</span>
                 </label>
                 <label>
+                  <input type="radio" name="mapView" value="duplicados" />
+                  <span>Duplicados</span>
+                </label>
+                <label>
                   <input type="radio" name="mapView" value="trajeto" />
                   <span>Trajeto</span>
                 </label>
@@ -336,6 +340,10 @@
                 <span>Pontos</span>
               </label>
               <label>
+                <input type="radio" name="mapViewModal" value="duplicados" />
+                <span>Duplicados</span>
+              </label>
+              <label>
                 <input type="radio" name="mapViewModal" value="trajeto" />
                 <span>Trajeto</span>
               </label>
@@ -343,6 +351,7 @@
             <div class="map-legend" aria-label="Legenda do mapa">
               <span><i class="legend-dot first"></i>Primeiro</span>
               <span><i class="legend-dot manual"></i>Ponto</span>
+              <span><i class="legend-dot duplicate"></i>Duplicado</span>
               <span><i class="legend-dot route"></i>Trajeto</span>
             </div>
             <button class="map-fit-button" id="fitMapButton" type="button" disabled>

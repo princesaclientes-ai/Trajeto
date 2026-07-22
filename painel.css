@@ -735,7 +735,7 @@ h2 {
 }
 
 .map-view-toggle span {
-  min-width: 72px;
+  min-width: 88px;
   border-radius: 6px;
   padding: 7px 10px;
   color: var(--muted);
@@ -864,6 +864,10 @@ h2 {
 .legend-dot.first,
 .legend-dot.manual {
   background: #1264c8;
+}
+
+.legend-dot.duplicate {
+  background: #f28c18;
 }
 
 .legend-dot.route {
@@ -1024,6 +1028,10 @@ h2 {
   background: #1264c8;
 }
 
+.point-marker.duplicado {
+  background: #f28c18;
+}
+
 .point-marker.trajeto {
   background: #116149;
 }
@@ -1036,6 +1044,14 @@ h2 {
   min-width: 210px;
 }
 
+.popup-overlap-note {
+  display: block;
+  margin-top: 8px;
+  color: #6a746f;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
 .popup-copy-button {
   display: flex;
   align-items: center;
