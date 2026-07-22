@@ -28,6 +28,8 @@ const clientFilter = document.querySelector("#clientFilter");
 const directionFilter = document.querySelector("#directionFilter");
 const lineFilter = document.querySelector("#lineFilter");
 const statusFilter = document.querySelector("#statusFilter");
+const trashButton = document.querySelector("#trashButton");
+const trashCount = document.querySelector("#trashCount");
 const selectedRouteTitle = document.querySelector("#selectedRouteTitle");
 const selectedRouteStatus = document.querySelector("#selectedRouteStatus");
 const validateSelectedButton = document.querySelector("#validateSelectedButton");
@@ -93,6 +95,16 @@ const helpLineClient = document.querySelector("#helpLineClient");
 const helpLineDirection = document.querySelector("#helpLineDirection");
 const helpLineName = document.querySelector("#helpLineName");
 const addRequestedLineButton = document.querySelector("#addRequestedLineButton");
+const confirmDeleteModal = document.querySelector("#confirmDeleteModal");
+const confirmDeleteBackdrop = document.querySelector("#confirmDeleteBackdrop");
+const confirmDeleteDescription = document.querySelector("#confirmDeleteDescription");
+const confirmDeleteInput = document.querySelector("#confirmDeleteInput");
+const confirmDeleteButton = document.querySelector("#confirmDeleteButton");
+const cancelDeleteButton = document.querySelector("#cancelDeleteButton");
+const trashModal = document.querySelector("#trashModal");
+const trashBackdrop = document.querySelector("#trashBackdrop");
+const closeTrashButton = document.querySelector("#closeTrashButton");
+const trashList = document.querySelector("#trashList");
 
 let routes = [];
 let pointCountByRouteId = new Map();
@@ -102,6 +114,8 @@ let selectedRouteId = null;
 let refreshTimer = null;
 let routeMap = null;
 let routeMapLayer = null;
+let streetMapLayer = null;
+let satelliteMapLayer = null;
 let routeLineLayer = null;
 let mapSearchResultMarker = null;
 let routeLineSignature = "";
@@ -123,6 +137,7 @@ let suppressMapClickUntil = 0;
 const routedLineCache = new Map();
 const routeMarkerByPointId = new Map();
 let pendingHelpQuestions = [];
+let routePendingDeletion = null;
 
 function updatePointSelectionControls(visiblePoints = filterPointsByView(currentRoutePoints)) {
   const visibleIds = visiblePoints.map((point) => String(point.id));
@@ -204,11 +219,26 @@ function getFilteredRoutes() {
     const matchesStatus = !statusValue || getRouteStatus(route) === statusValue;
 
     return matchesDriver && matchesClient && matchesDirection && matchesLine && matchesStatus;
+  }).sort(compareRoutesByLine);
+}
+
+function naturalTextCompare(a, b) {
+  return String(a || "").localeCompare(String(b || ""), "pt-BR", {
+    numeric: true,
+    sensitivity: "base",
   });
 }
 
+function compareRoutesByLine(a, b) {
+  return (
+    naturalTextCompare(a.nome_linha, b.nome_linha) ||
+    naturalTextCompare(a.cliente, b.cliente) ||
+    naturalTextCompare(a.sentido, b.sentido)
+  );
+}
+
 function uniqueSorted(values) {
-  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  return [...new Set(values.filter(Boolean))].sort(naturalTextCompare);
 }
 
 function fillFilterSelect(select, placeholder, values) {
@@ -482,6 +512,7 @@ function getStatusLabel(status) {
   const labels = {
     em_andamento: "em andamento",
     finalizado: "aguardando validacao",
+    importado: "Importação concluída",
     trajeto: "trajeto validado",
   };
 
@@ -491,6 +522,10 @@ function getStatusLabel(status) {
 function getStatusClass(status) {
   if (status === "finalizado") {
     return "waiting";
+  }
+
+  if (status === "importado") {
+    return "imported";
   }
 
   if (status === "trajeto") {
@@ -1121,10 +1156,27 @@ function ensureRouteMap() {
     }
   });
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  streetMapLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: "&copy; OpenStreetMap",
   }).addTo(routeMap);
+
+  satelliteMapLayer = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    {
+      maxZoom: 19,
+      attribution: "Tiles &copy; Esri",
+    }
+  );
+
+  L.control.layers(
+    {
+      Ruas: streetMapLayer,
+      Satelite: satelliteMapLayer,
+    },
+    null,
+    { position: "topright", collapsed: false }
+  ).addTo(routeMap);
 
   routeMapLayer = L.layerGroup().addTo(routeMap);
   setTimeout(() => routeMap.invalidateSize(), 0);
@@ -2182,21 +2234,21 @@ function getFilteredChecklistLines() {
     }
 
     return matchesDriver && matchesClient && matchesDirection && matchesLine && matchesStatus;
-  }).sort((a, b) => {
-    const countDifference = getConfiguredLinePointCount(b) - getConfiguredLinePointCount(a);
+  }).sort(compareRoutesByLine);
+}
 
-    if (countDifference !== 0) {
-      return countDifference;
-    }
+function canValidateRoute(route) {
+  return route && ["finalizado", "importado", "trajeto"].includes(route.status);
+}
 
-    const clientComparison = (a.cliente || "").localeCompare(b.cliente || "", "pt-BR");
+function getStatusActionLabel(route) {
+  const labels = {
+    finalizado: "Validar trajeto",
+    trajeto: "Concluir importação",
+    importado: "Voltar à etapa anterior",
+  };
 
-    if (clientComparison !== 0) {
-      return clientComparison;
-    }
-
-    return (a.nome_linha || "").localeCompare(b.nome_linha || "", "pt-BR");
-  });
+  return labels[route?.status] || "Alterar etapa";
 }
 
 function renderTrackingChecklist() {
@@ -2253,11 +2305,6 @@ function renderTrackingChecklist() {
         <button class="button secondary" type="button" data-action="view" ${route ? "" : "disabled"}>
           Visualizar
         </button>
-        <button class="button secondary" type="button" data-action="validate" ${
-          routeStatus === "finalizado" ? "" : "disabled"
-        }>
-          Validar
-        </button>
         <button class="button danger" type="button" data-action="delete" ${route ? "" : "disabled"}>
           Excluir
         </button>
@@ -2273,9 +2320,6 @@ function renderTrackingChecklist() {
       await selectRoute(route.id);
       openDetailModal();
     });
-    card.querySelector('[data-action="validate"]')?.addEventListener("click", () =>
-      validateRoute(route)
-    );
     card.querySelector('[data-action="delete"]')?.addEventListener("click", () =>
       deleteRoute(route)
     );
@@ -2321,7 +2365,8 @@ function renderRouteDetails(route, points) {
   routeStorageUsage.title = route
     ? "Estimativa do espaco ocupado pelo trajeto selecionado e seus pontos carregados"
     : "Selecione um trajeto para ver o espaco estimado";
-  validateSelectedButton.disabled = !route || routeStatus !== "finalizado";
+  validateSelectedButton.disabled = !canValidateRoute(route);
+  validateSelectedButton.textContent = getStatusActionLabel(route);
   finishSelectedButton.disabled = !route || route.status !== "em_andamento";
   deleteSelectedButton.disabled = !route;
   openMapButton.disabled = !route || visiblePoints.length === 0;
@@ -2496,7 +2541,8 @@ async function loadRoutes() {
 
   const { data, error } = await supabaseClient
     .from("trajetos")
-    .select("id, matricula_condutor, cliente, sentido, nome_linha, status, data_hora_inicio, data_hora_fim, created_at")
+    .select("id, matricula_condutor, cliente, sentido, nome_linha, status, data_hora_inicio, data_hora_fim, created_at, deleted_at")
+    .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(500);
 
@@ -2588,41 +2634,55 @@ async function finishSelectedRoute() {
   }
 }
 
-async function validateRoute(route) {
+async function changeRouteStatus(route) {
   if (!route) {
     setMessage("Selecione um trajeto para validar.", "error");
     return;
   }
 
-  if (route.status !== "finalizado") {
-    setMessage("Somente trajetos aguardando validacao podem ser validados.", "error");
+  if (!canValidateRoute(route)) {
+    setMessage("Este trajeto não permite alteração de status.", "error");
     return;
   }
 
   try {
     validateSelectedButton.disabled = true;
+    const previousStatus = route.status;
+    const nextStatusByCurrentStatus = {
+      finalizado: "trajeto",
+      trajeto: "importado",
+      importado: "trajeto",
+    };
+    const nextStatus = nextStatusByCurrentStatus[previousStatus];
 
     const { error } = await supabaseClient
       .from("trajetos")
-      .update({ status: "trajeto" })
+      .update({ status: nextStatus })
       .eq("id", route.id)
-      .eq("status", "finalizado");
+      .eq("status", previousStatus);
 
     if (error) {
       throw error;
     }
 
-    setMessage("Trajeto validado com sucesso.", "success");
+    setMessage(
+      nextStatus === "importado"
+        ? "Importação concluída. O arquivo foi encaminhado para a etapa final do processo."
+        : previousStatus === "importado"
+          ? "Status retornado para a etapa anterior: Trajeto validado."
+          : "Trajeto validado com sucesso.",
+      "success"
+    );
     await refreshDashboard();
   } catch (error) {
-    setMessage(`Erro ao validar trajeto: ${error.message}`, "error");
+    setMessage(`Erro ao alterar status: ${error.message}`, "error");
   } finally {
-    validateSelectedButton.disabled = getSelectedRoute()?.status !== "finalizado";
+    validateSelectedButton.disabled = !canValidateRoute(getSelectedRoute());
   }
 }
 
 async function validateSelectedRoute() {
-  await validateRoute(getSelectedRoute());
+  await changeRouteStatus(getSelectedRoute());
 }
 
 async function deleteRoute(route) {
@@ -2631,20 +2691,33 @@ async function deleteRoute(route) {
     return;
   }
 
-  const confirmed = window.confirm(
-    `Excluir o trajeto de ${route.cliente} da matricula ${route.matricula_condutor}? Esta acao tambem remove os pontos.`
-  );
+  routePendingDeletion = route;
+  confirmDeleteDescription.textContent = `Você pretende excluir a linha ${route.nome_linha || "-"} do cliente ${route.cliente || "-"}, referente ao dia ${formatShortDate(route.data_hora_inicio)}?`;
+  confirmDeleteInput.value = "";
+  confirmDeleteButton.disabled = true;
+  confirmDeleteModal.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  setTimeout(() => confirmDeleteInput.focus(), 0);
+}
 
-  if (!confirmed) {
-    return;
+function closeDeleteConfirmation() {
+  routePendingDeletion = null;
+  confirmDeleteModal.classList.add("hidden");
+  if (trashModal.classList.contains("hidden") && !isMapModalOpen && !isDetailModalOpen) {
+    document.body.classList.remove("modal-open");
   }
+}
+
+async function confirmRouteDeletion() {
+  const route = routePendingDeletion;
+  if (!route || confirmDeleteInput.value.trim().toUpperCase() !== "EXCLUIR") return;
 
   try {
-    deleteSelectedButton.disabled = true;
+    confirmDeleteButton.disabled = true;
 
     const { error } = await supabaseClient
       .from("trajetos")
-      .delete()
+      .update({ deleted_at: new Date().toISOString() })
       .eq("id", route.id);
 
     if (error) {
@@ -2658,13 +2731,74 @@ async function deleteRoute(route) {
     });
     saveRouteHistorySelection();
     selectedRouteId = null;
-    setMessage("Trajeto excluido pelo painel.", "success");
+    closeDeleteConfirmation();
+    setMessage("Trajeto movido para a lixeira. Ele poderá ser restaurado por 30 dias.", "success");
     await refreshDashboard();
+    await updateTrashCount();
   } catch (error) {
     setMessage(`Erro ao excluir trajeto: ${error.message}`, "error");
   } finally {
     deleteSelectedButton.disabled = !getSelectedRoute();
   }
+}
+
+function formatShortDate(value) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("pt-BR").format(new Date(value));
+}
+
+function trashDaysRemaining(deletedAt) {
+  const expiresAt = new Date(deletedAt).getTime() + 30 * 86400000;
+  return Math.max(0, Math.ceil((expiresAt - Date.now()) / 86400000));
+}
+
+async function loadTrash() {
+  trashList.innerHTML = '<p class="empty-cell">Carregando...</p>';
+  const { data, error } = await supabaseClient.from("trajetos")
+    .select("id, cliente, nome_linha, data_hora_inicio, deleted_at")
+    .not("deleted_at", "is", null).order("deleted_at", { ascending: false });
+  if (error) throw error;
+  trashCount.textContent = String((data || []).length);
+  if (!data?.length) {
+    trashList.innerHTML = '<p class="empty-cell">A lixeira está vazia.</p>';
+    return;
+  }
+  trashList.innerHTML = data.map((route) => `
+    <article class="trash-item">
+      <div><strong>Linha ${escapeHtml(route.nome_linha || "-")} — ${escapeHtml(route.cliente || "-")}</strong>
+      <p>Referente ao dia ${formatShortDate(route.data_hora_inicio)}</p>
+      <small>${trashDaysRemaining(route.deleted_at)} dia(s) restante(s)</small></div>
+      <button class="button secondary" type="button" data-restore-id="${escapeHtml(route.id)}">Restaurar</button>
+    </article>`).join("");
+  trashList.querySelectorAll("[data-restore-id]").forEach((button) => button.addEventListener("click", () => restoreRoute(button.dataset.restoreId)));
+}
+
+async function updateTrashCount() {
+  const { error: purgeError } = await supabaseClient.rpc("purge_expired_trash");
+  if (purgeError && purgeError.code !== "PGRST202") {
+    console.warn("Não foi possível limpar a lixeira expirada.", purgeError);
+  }
+  const { count } = await supabaseClient.from("trajetos").select("id", { count: "exact", head: true }).not("deleted_at", "is", null);
+  trashCount.textContent = String(count || 0);
+}
+
+async function openTrash() {
+  trashModal.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  try { await loadTrash(); } catch (error) { trashList.innerHTML = `<p class="empty-cell">Erro: ${escapeHtml(error.message)}</p>`; }
+}
+
+function closeTrash() {
+  trashModal.classList.add("hidden");
+  if (confirmDeleteModal.classList.contains("hidden") && !isMapModalOpen && !isDetailModalOpen) document.body.classList.remove("modal-open");
+}
+
+async function restoreRoute(routeId) {
+  const { error } = await supabaseClient.from("trajetos").update({ deleted_at: null }).eq("id", routeId);
+  if (error) { setMessage(`Erro ao restaurar: ${error.message}`, "error"); return; }
+  setMessage("Trajeto restaurado com sucesso.", "success");
+  await loadTrash();
+  await refreshDashboard();
 }
 
 async function deleteSelectedRoute() {
@@ -3186,6 +3320,18 @@ mapViewInputs.forEach((input) => {
 finishSelectedButton.addEventListener("click", finishSelectedRoute);
 validateSelectedButton.addEventListener("click", validateSelectedRoute);
 deleteSelectedButton.addEventListener("click", deleteSelectedRoute);
+confirmDeleteInput.addEventListener("input", () => { confirmDeleteButton.disabled = confirmDeleteInput.value.trim().toUpperCase() !== "EXCLUIR"; });
+confirmDeleteInput.addEventListener("paste", (event) => event.preventDefault());
+confirmDeleteInput.addEventListener("drop", (event) => event.preventDefault());
+confirmDeleteInput.addEventListener("cut", (event) => event.preventDefault());
+confirmDeleteInput.addEventListener("contextmenu", (event) => event.preventDefault());
+confirmDeleteModal.addEventListener("copy", (event) => event.preventDefault());
+confirmDeleteButton.addEventListener("click", confirmRouteDeletion);
+cancelDeleteButton.addEventListener("click", closeDeleteConfirmation);
+confirmDeleteBackdrop.addEventListener("click", closeDeleteConfirmation);
+trashButton.addEventListener("click", openTrash);
+closeTrashButton.addEventListener("click", closeTrash);
+trashBackdrop.addEventListener("click", closeTrash);
 deleteSelectedPointsButton.addEventListener("click", deleteSelectedPoints);
 undoDeletePointsButton.addEventListener("click", undoDeleteSelectedPoints);
 deletePointRangeButton.addEventListener("click", deletePointsByRange);
@@ -3220,7 +3366,11 @@ helpQuestionStatusFilter.addEventListener("change", loadPendingHelpQuestions);
 deleteHelpQuestionButton.addEventListener("click", deleteSelectedHelpQuestion);
 addRequestedLineButton.addEventListener("click", addRequestedLine);
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && isMapModalOpen) {
+  if (event.key === "Escape" && !confirmDeleteModal.classList.contains("hidden")) {
+    closeDeleteConfirmation();
+  } else if (event.key === "Escape" && !trashModal.classList.contains("hidden")) {
+    closeTrash();
+  } else if (event.key === "Escape" && isMapModalOpen) {
     closeMapModal();
   } else if (event.key === "Escape" && isDetailModalOpen) {
     closeDetailModal();
@@ -3231,5 +3381,6 @@ document.addEventListener("keydown", (event) => {
 
 loadRouteHistorySelection();
 refreshDashboard();
+updateTrashCount();
 loadPendingHelpCount();
 syncRefreshTimer();

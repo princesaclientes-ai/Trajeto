@@ -13,7 +13,8 @@ create table if not exists public.trajetos (
   data_hora_inicio timestamptz not null default now(),
   data_hora_fim timestamptz null,
   created_at timestamptz not null default now(),
-  constraint trajetos_status_check check (status in ('em_andamento', 'finalizado', 'trajeto'))
+  deleted_at timestamptz null,
+  constraint trajetos_status_check check (status in ('em_andamento', 'finalizado', 'importado', 'trajeto'))
 );
 
 alter table public.trajetos
@@ -21,13 +22,19 @@ alter table public.trajetos
 
 alter table public.trajetos
   add constraint trajetos_status_check
-  check (status in ('em_andamento', 'finalizado', 'trajeto'));
+  check (status in ('em_andamento', 'finalizado', 'importado', 'trajeto'));
 
 alter table public.trajetos
   add column if not exists sentido text null;
 
 alter table public.trajetos
   add column if not exists nome_linha text null;
+
+alter table public.trajetos
+  add column if not exists deleted_at timestamptz null;
+
+create index if not exists idx_trajetos_deleted_at
+  on public.trajetos (deleted_at);
 
 create table if not exists public.trajeto_pontos (
   id uuid primary key default gen_random_uuid(),
@@ -133,14 +140,14 @@ create policy "Permitir atualizar trajetos anonimamente"
 on public.trajetos
 for update
 to anon
-using (status in ('em_andamento', 'finalizado', 'trajeto'))
+using (status in ('em_andamento', 'finalizado', 'importado', 'trajeto'))
 with check (
   (
     status = 'em_andamento'
     and data_hora_fim is null
   )
   or (
-    status in ('finalizado', 'trajeto')
+    status in ('finalizado', 'importado', 'trajeto')
     and data_hora_fim is not null
   )
 );
@@ -162,7 +169,7 @@ with check (
     select 1
     from public.trajetos t
     where t.id = trajeto_id
-      and t.status in ('em_andamento', 'finalizado', 'trajeto')
+      and t.status in ('em_andamento', 'finalizado', 'importado', 'trajeto')
   )
 );
 
@@ -295,3 +302,25 @@ as $$
 $$;
 
 grant execute on function public.get_database_usage() to anon, authenticated;
+
+-- Remove definitivamente trajetos que estão na lixeira há mais de 30 dias.
+-- Os pontos são removidos junto pelo ON DELETE CASCADE.
+create or replace function public.purge_expired_trash()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  deleted_count integer;
+begin
+  delete from public.trajetos
+  where deleted_at is not null
+    and deleted_at <= now() - interval '30 days';
+
+  get diagnostics deleted_count = row_count;
+  return deleted_count;
+end;
+$$;
+
+grant execute on function public.purge_expired_trash() to anon, authenticated;

@@ -33,6 +33,7 @@
             <input id="autoRefreshToggle" type="checkbox" checked />
             <span>Ao vivo</span>
           </label>
+          <button class="button secondary" id="trashButton" type="button">Lixeira <span id="trashCount">0</span></button>
           <button class="button secondary" id="refreshButton" type="button">Atualizar</button>
         </div>
       </header>
@@ -106,6 +107,7 @@
               <option value="em_andamento">Em andamento</option>
               <option value="finalizado">Aguardando validacao</option>
               <option value="trajeto">Trajeto validado</option>
+              <option value="importado">Importação concluída</option>
             </select>
           </label>
         </div>
@@ -151,6 +153,7 @@
                 <option value="em_andamento">Em andamento</option>
                 <option value="finalizado">Aguardando validacao</option>
                 <option value="trajeto">Trajeto validado</option>
+                <option value="importado">Importação concluída</option>
               </select>
             </label>
           </div>
@@ -428,6 +431,42 @@
             </button>
           </form>
         </div>
+      </section>
+    </div>
+
+    <div class="confirm-delete-modal hidden" id="confirmDeleteModal" role="dialog" aria-modal="true" aria-labelledby="confirmDeleteTitle">
+      <div class="standard-modal-backdrop" id="confirmDeleteBackdrop"></div>
+      <section class="standard-modal-dialog confirm-delete-dialog">
+        <header class="standard-modal-header">
+          <div>
+            <p class="eyebrow">Confirmação de exclusão</p>
+            <h2 id="confirmDeleteTitle">Mover trajeto para a lixeira?</h2>
+          </div>
+          <button class="button secondary" id="cancelDeleteButton" type="button">Cancelar</button>
+        </header>
+        <div class="standard-modal-body">
+          <p id="confirmDeleteDescription"></p>
+          <p>O trajeto ficará na lixeira por 30 dias e poderá ser restaurado nesse período.</p>
+          <label class="confirm-delete-field">
+            <span class="manual-confirmation-text">Para confirmar, escreva <strong>EXCLUIR</strong></span>
+            <input id="confirmDeleteInput" type="text" autocomplete="off" placeholder="EXCLUIR" />
+          </label>
+          <button class="button danger" id="confirmDeleteButton" type="button" disabled>Mover para a lixeira</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="trash-modal hidden" id="trashModal" role="dialog" aria-modal="true" aria-labelledby="trashTitle">
+      <div class="standard-modal-backdrop" id="trashBackdrop"></div>
+      <section class="standard-modal-dialog trash-dialog">
+        <header class="standard-modal-header">
+          <div>
+            <p class="eyebrow">Retenção de 30 dias</p>
+            <h2 id="trashTitle">Lixeira</h2>
+          </div>
+          <button class="button secondary" id="closeTrashButton" type="button">Fechar</button>
+        </header>
+        <div class="trash-list" id="trashList"><p class="empty-cell">Carregando...</p></div>
       </section>
     </div>
   </body>

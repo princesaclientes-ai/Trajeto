@@ -375,6 +375,12 @@ h2 {
   color: var(--warning);
 }
 
+.status-pill.imported {
+  color: #155e75;
+  background: #cffafe;
+  border-color: #67e8f9;
+}
+
 .status-pill.validated {
   background: rgba(17, 97, 73, 0.12);
   color: var(--primary);
@@ -1384,6 +1390,63 @@ td:nth-child(8) {
 .help-admin-modal.hidden {
   display: none;
 }
+
+.confirm-delete-modal,
+.trash-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.confirm-delete-modal.hidden,
+.trash-modal.hidden {
+  display: none;
+}
+
+.standard-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(12, 22, 18, 0.68);
+}
+
+.standard-modal-dialog {
+  position: relative;
+  z-index: 1;
+  width: min(680px, 100%);
+  max-height: calc(100dvh - 36px);
+  overflow: auto;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+.standard-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.standard-modal-body {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.standard-modal-body p { margin: 0; line-height: 1.55; }
+.confirm-delete-field { display: grid; gap: 8px; }
+.manual-confirmation-text { user-select: none; -webkit-user-select: none; }
+.confirm-delete-field input { min-height: 44px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; }
+.trash-dialog { width: min(850px, 100%); }
+.trash-list { display: grid; gap: 10px; padding: 18px; }
+.trash-item { display: flex; justify-content: space-between; gap: 16px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.trash-item p { margin: 4px 0 0; color: var(--muted); }
+.trash-item small { display: block; margin-top: 5px; color: var(--danger); font-weight: 700; }
 
 .help-admin-backdrop {
   position: absolute;
