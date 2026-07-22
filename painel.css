@@ -109,7 +109,7 @@ h2 {
 
 .live-toggle {
   min-height: 42px;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
   border: 1px solid var(--line);
@@ -155,7 +155,7 @@ h2 {
 
 .stat-card strong {
   display: block;
-  margin-top: 8px;
+  margin-top: 18px;
   font-size: 1.7rem;
 }
 
@@ -565,7 +565,7 @@ h2 {
 }
 
 .points-totals {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
@@ -573,7 +573,7 @@ h2 {
 
 .points-totals span {
   min-height: 34px;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 5px;
   border: 1px solid var(--line);
@@ -664,7 +664,7 @@ h2 {
 
 .map-search {
   min-height: 34px;
-  display: inline-flex;
+  display: flex;
   align-items: stretch;
 }
 
@@ -711,7 +711,7 @@ h2 {
 
 .map-view-toggle {
   min-height: 34px;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 2px;
   border: 1px solid var(--line);
@@ -722,7 +722,7 @@ h2 {
 
 .map-view-toggle label {
   position: relative;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   min-height: 28px;
   cursor: pointer;
@@ -766,7 +766,7 @@ h2 {
 }
 
 .map-legend span {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 5px;
   white-space: nowrap;
@@ -785,7 +785,7 @@ h2 {
 }
 
 .export-actions {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   flex: 0 0 auto;
   flex-wrap: nowrap;
@@ -800,7 +800,7 @@ h2 {
   z-index: 1;
   height: 34px;
   min-height: 34px;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
@@ -863,7 +863,7 @@ h2 {
 
 .legend-dot.first,
 .legend-dot.manual {
-  background: #1264c8;
+  background: #116149;
 }
 
 .legend-dot.route {
@@ -1021,7 +1021,7 @@ h2 {
 
 .point-marker.manual,
 .point-marker.primeiro {
-  background: #1264c8;
+  background: #116149;
 }
 
 .point-marker.trajeto {
@@ -1036,6 +1036,27 @@ h2 {
   min-width: 210px;
 }
 
+.popup-copy-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 18px;
+  min-height: 32px;
+  border: 1px solid #116149;
+  border-radius: 6px;
+  background: #116149;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.popup-copy-button:hover {
+  background: #0b4f3d;
+  border-color: #0b4f3d;
+}
 .popup-edit-hint {
   display: block;
   margin-top: 6px;
@@ -1043,7 +1064,7 @@ h2 {
 }
 
 .popup-order-editor {
-  margin-top: 8px;
+  margin-top: 18px;
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 6px;
@@ -1084,7 +1105,7 @@ h2 {
 }
 
 .popup-danger-button {
-  margin-top: 8px;
+  margin-top: 18px;
   min-height: 30px;
   border: 1px solid #e8c7c4;
   border-radius: 6px;
@@ -1101,7 +1122,7 @@ h2 {
 }
 
 .popup-secondary-button {
-  margin-top: 8px;
+  margin-top: 18px;
   min-height: 30px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -1276,7 +1297,7 @@ td:nth-child(8) {
 }
 
 .range-delete-controls {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 7px;
   padding-left: 10px;
@@ -1284,7 +1305,7 @@ td:nth-child(8) {
 }
 
 .range-delete-controls label {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 5px;
   color: var(--muted);
@@ -1326,7 +1347,7 @@ td:nth-child(8) {
 }
 
 .map-link {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   min-width: 58px;
@@ -1361,7 +1382,7 @@ td:nth-child(8) {
 }
 
 .help-questions-button {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
 }
@@ -1487,7 +1508,7 @@ td:nth-child(8) {
 }
 
 .help-admin-toolbar label {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
   color: var(--muted);

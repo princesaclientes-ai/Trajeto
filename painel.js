@@ -446,6 +446,22 @@ function getPointEditErrorMessage(error, action) {
   return `Erro ao ${action} ponto: ${message}`;
 }
 
+async function copyCoordinatesToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const input = document.createElement("textarea");
+  input.value = text;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.left = "-9999px";
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand("copy");
+  document.body.removeChild(input);
+}
 function getSelectedRoute() {
   return routes.find((item) => item.id === selectedRouteId) || null;
 }
@@ -1787,6 +1803,28 @@ function createPointPopupContent(point, maxOrder) {
   ];
 
   container.innerHTML = lines.join("<br>");
+  const coordinates = `${formatNumber(point.latitude)}, ${formatNumber(point.longitude)}`;
+  const copyButton = document.createElement("button");
+  copyButton.className = "popup-copy-button";
+  copyButton.type = "button";
+  copyButton.textContent = "Copiar LatLng";
+  copyButton.title = "Copiar latitude e longitude";
+  copyButton.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    try {
+      await copyCoordinatesToClipboard(coordinates);
+      copyButton.textContent = "Copiado";
+      setMessage(`Coordenadas copiadas: ${coordinates}`, "success");
+      setTimeout(() => {
+        copyButton.textContent = "Copiar LatLng";
+      }, 1600);
+    } catch (error) {
+      setMessage("Nao foi possivel copiar as coordenadas.", "error");
+    }
+  });
+  container.appendChild(copyButton);
 
   if (!isEditingMapPoints) {
     return container;
