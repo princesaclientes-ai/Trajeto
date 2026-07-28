@@ -104,10 +104,17 @@
             <select id="statusFilter">
               <option value="">Todos</option>
               <option value="nao_percorrido">Nao percorrido</option>
+              <option value="alinhado">Alinhado com o condutor</option>
               <option value="em_andamento">Em andamento</option>
               <option value="finalizado">Aguardando validacao</option>
               <option value="trajeto">Trajeto validado</option>
               <option value="importado">Importação concluída</option>
+            </select>
+          </label>
+          <label>
+            <span>Operador responsável</span>
+            <select id="operatorFilter">
+              <option value="">Todos os operadores</option>
             </select>
           </label>
         </div>
@@ -150,6 +157,7 @@
               <span>Status</span>
               <select id="statusFilterSidebar">
                 <option value="">Todos</option>
+                <option value="alinhado">Alinhado com o condutor</option>
                 <option value="em_andamento">Em andamento</option>
                 <option value="finalizado">Aguardando validacao</option>
                 <option value="trajeto">Trajeto validado</option>
@@ -170,6 +178,12 @@
               <span class="status-pill" id="selectedRouteStatus">-</span>
               <button class="button secondary" id="validateSelectedButton" type="button" disabled>
                 Validar trajeto
+              </button>
+              <button class="button secondary hidden" id="openLayerEditorButton" type="button">
+                Editar camada da rota
+              </button>
+              <button class="button secondary" id="openDemandHistoryButton" type="button" disabled>
+                Histórico
               </button>
               <button class="button secondary" id="finishSelectedButton" type="button" disabled>
                 Finalizar
@@ -348,6 +362,12 @@
                 <span>Trajeto</span>
               </label>
             </div>
+            <label class="map-insert-type" title="Inclui um ponto de embarque ao clicar no mapa">
+              <span>Ao clicar:</span>
+              <select id="mapInsertType">
+                <option value="manual">Criar ponto de embarque</option>
+              </select>
+            </label>
             <div class="map-legend" aria-label="Legenda do mapa">
               <span><i class="legend-dot first"></i>Primeiro</span>
               <span><i class="legend-dot manual"></i>Ponto</span>
@@ -357,8 +377,14 @@
             <button class="map-fit-button" id="fitMapButton" type="button" disabled>
               Enquadrar rota
             </button>
+            <button class="map-fit-button" id="toggleTrackPositionsButton" type="button" disabled>
+              Exibir posicionamentos
+            </button>
             <button class="map-fit-button" id="editMapButton" type="button" disabled>
               Editar pontos
+            </button>
+            <button class="map-fit-button hidden" id="officializeRouteButton" type="button" disabled aria-hidden="true">
+              Oficializar alteração
             </button>
             <button class="map-fit-button" id="undoPointOrderButton" type="button" disabled>
               Desfazer ordem
@@ -369,6 +395,32 @@
           </div>
         </div>
         <div id="routeMap" class="route-map"></div>
+      </section>
+    </div>
+
+    <div class="layer-editor-modal hidden" id="layerEditorModal" role="dialog" aria-modal="true" aria-labelledby="layerEditorTitle">
+      <div class="map-modal-backdrop" id="layerEditorBackdrop"></div>
+      <section class="layer-editor-dialog">
+        <header class="map-header">
+          <div>
+            <p class="eyebrow">Camada oficial independente</p>
+            <h2 id="layerEditorTitle">Editar camada da rota</h2>
+            <span id="layerEditorStatus">Carregando geometria...</span>
+          </div>
+          <div class="map-meta">
+            <div class="map-search" role="search">
+              <label class="sr-only" for="layerEditorSearch">Pesquisar endereço ou coordenadas</label>
+              <input id="layerEditorSearch" type="search" placeholder="Endereço, latitude ou longitude" autocomplete="off" />
+              <button id="layerEditorSearchButton" type="button">Buscar</button>
+            </div>
+            <button class="map-fit-button" id="addLayerManualPointButton" type="button">Adicionar ponto manual</button>
+            <button class="map-fit-button" id="clearLayerNodesButton" type="button">Limpar nós</button>
+            <button class="map-fit-button" id="saveOfficialLayerButton" type="button" disabled>Oficializar camada</button>
+            <button class="map-close-button" id="closeLayerEditorButton" type="button">Fechar</button>
+          </div>
+        </header>
+        <div class="layer-editor-help">Clique e arraste a linha verde até a rua desejada. Cada ponto de embarque azul também funciona como um nó fixo: somente o trecho entre os pontos ou nós vizinhos será alterado. A trava desaparece apenas quando o ponto for excluído.</div>
+        <div id="layerEditorMap" class="route-map"></div>
       </section>
     </div>
 
@@ -443,6 +495,58 @@
       </section>
     </div>
 
+    <div class="confirm-delete-modal hidden" id="demandHistoryModal" role="dialog" aria-modal="true" aria-labelledby="demandHistoryTitle">
+      <div class="standard-modal-backdrop" id="demandHistoryBackdrop"></div>
+      <section class="standard-modal-dialog trash-dialog">
+        <header class="standard-modal-header">
+          <div>
+            <p class="eyebrow">Gestão da demanda</p>
+            <h2 id="demandHistoryTitle">Histórico da linha</h2>
+          </div>
+          <button class="button secondary" id="closeDemandHistoryButton" type="button">Fechar</button>
+        </header>
+        <div class="standard-modal-body">
+          <p id="demandHistoryDescription"></p>
+          <div class="demand-history-popup-list" id="demandHistoryPopupList"></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="confirm-delete-modal hidden" id="alignmentModal" role="dialog" aria-modal="true" aria-labelledby="alignmentTitle">
+      <div class="standard-modal-backdrop" id="alignmentBackdrop"></div>
+      <section class="standard-modal-dialog confirm-delete-dialog">
+        <header class="standard-modal-header">
+          <div>
+            <p class="eyebrow">Planejamento da execução</p>
+            <h2 id="alignmentTitle">Alinhar com o condutor</h2>
+          </div>
+          <button class="button secondary" id="closeAlignmentButton" type="button">Cancelar</button>
+        </header>
+        <form class="standard-modal-body" id="alignmentForm">
+          <p id="alignmentLineDescription"></p>
+          <label class="confirm-delete-field">
+            <span>Apelido do condutor contatado</span>
+            <input id="alignmentDriverAlias" type="text" required autocomplete="off" />
+          </label>
+          <label class="confirm-delete-field">
+            <span>Operador responsável</span>
+            <select id="alignmentOperator" required></select>
+          </label>
+          <p>Se o operador não estiver na lista, pressione <strong>F9</strong>.</p>
+          <div class="hidden" id="newOperatorFields">
+            <label class="confirm-delete-field">
+              <span>Nome do novo operador</span>
+              <input id="newOperatorName" type="text" autocomplete="off" />
+            </label>
+            <button class="button secondary" id="addOperatorButton" type="button">Adicionar operador</button>
+          </div>
+          <button class="button primary" id="saveAlignmentButton" type="submit">
+            Confirmar alinhamento
+          </button>
+        </form>
+      </section>
+    </div>
+
     <div class="confirm-delete-modal hidden" id="confirmDeleteModal" role="dialog" aria-modal="true" aria-labelledby="confirmDeleteTitle">
       <div class="standard-modal-backdrop" id="confirmDeleteBackdrop"></div>
       <section class="standard-modal-dialog confirm-delete-dialog">
@@ -456,6 +560,10 @@
         <div class="standard-modal-body">
           <p id="confirmDeleteDescription"></p>
           <p>O trajeto ficará na lixeira por 30 dias e poderá ser restaurado nesse período.</p>
+          <label class="confirm-delete-field">
+            <span>Operador responsável pela exclusão</span>
+            <select id="deleteOperatorSelect" required></select>
+          </label>
           <label class="confirm-delete-field">
             <span class="manual-confirmation-text">Para confirmar, escreva <strong>EXCLUIR</strong></span>
             <input id="confirmDeleteInput" type="text" autocomplete="off" placeholder="EXCLUIR" />

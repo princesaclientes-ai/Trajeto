@@ -282,7 +282,7 @@ h2 {
 }
 
 .tracking-checklist-panel .filters {
-  grid-template-columns: minmax(160px, 1.1fr) repeat(4, minmax(150px, 1fr));
+  grid-template-columns: minmax(160px, 1.1fr) repeat(5, minmax(145px, 1fr));
   padding: 14px 18px;
   border-bottom: 1px solid var(--line);
   background: #fbfdfc;
@@ -389,6 +389,59 @@ h2 {
 .status-pill.missing {
   background: #edf2ef;
   color: var(--muted);
+}
+
+.status-pill.aligned {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.demand-history {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.demand-history summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.demand-history small {
+  display: block;
+  padding-top: 4px;
+}
+
+.demand-history-popup-list {
+  display: grid;
+  gap: 0;
+  max-height: min(62vh, 620px);
+  overflow: auto;
+}
+
+.demand-history-popup-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 12px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.demand-history-popup-item span,
+.demand-history-popup-item p,
+.demand-history-popup-item small {
+  display: block;
+  margin: 3px 0 0;
+  color: var(--muted);
+}
+
+.demand-history-popup-marker {
+  width: 13px;
+  height: 13px;
+  margin-top: 4px;
+  border: 3px solid #bfdbfe;
+  border-radius: 50%;
+  background: #1d4ed8;
 }
 
 .tracking-checklist-panel {
@@ -611,6 +664,32 @@ h2 {
   display: none;
 }
 
+.layer-editor-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 4700;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.layer-editor-modal.hidden { display: none; }
+.layer-editor-dialog { position: relative; z-index: 1; width: min(1500px, 100%); height: calc(100dvh - 36px); display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; background: #fff; box-shadow: var(--shadow); }
+.layer-editor-help { padding: 8px 18px; border-bottom: 1px solid var(--line); background: #f5f3ff; color: #5b21b6; font-size: .82rem; font-weight: 800; }
+.official-layer-line { cursor: grab; }
+.official-layer-line:active { cursor: grabbing; }
+.layer-boarding-point {
+  display: block;
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  background: #1264c8;
+  box-shadow: 0 1px 5px rgba(15, 23, 42, .55);
+  pointer-events: none;
+}
+
 .map-modal-backdrop {
   position: absolute;
   inset: 0;
@@ -750,6 +829,27 @@ h2 {
   box-shadow: 0 1px 4px rgba(20, 34, 29, 0.12);
 }
 
+.map-insert-type {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px 8px;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.map-insert-type select {
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-weight: 900;
+}
+
 .map-legend {
   display: flex;
   align-items: center;
@@ -872,6 +972,11 @@ h2 {
 
 .legend-dot.route {
   background: #116149;
+}
+
+.legend-dot.node {
+  border-radius: 3px;
+  background: #7c3aed;
 }
 
 .route-map {
@@ -1023,6 +1128,7 @@ h2 {
   font-weight: 900;
 }
 
+
 .point-marker.manual,
 .point-marker.primeiro {
   background: #1264c8;
@@ -1036,8 +1142,21 @@ h2 {
   background: #116149;
 }
 
+.point-marker.no {
+  width: 16px;
+  height: 16px;
+  border: 4px solid #ffffff;
+  border-radius: 50%;
+  background: #4285f4;
+  box-shadow: 0 1px 5px rgba(32, 33, 36, 0.55);
+}
+
 .editable-route-line {
   cursor: crosshair;
+}
+
+.node-connected-segment {
+  cursor: grab;
 }
 
 .point-popup-content {
