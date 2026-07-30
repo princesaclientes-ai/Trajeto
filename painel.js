@@ -1196,6 +1196,10 @@ function isManualPoint(point) {
   return point.tipo_ponto === "primeiro" || point.tipo_ponto === "manual";
 }
 
+function canMovePointOnMap(point) {
+  return point.tipo_ponto === "manual" || point.tipo_ponto === "trajeto";
+}
+
 function shouldHideTrackPositions(route = getSelectedRoute()) {
   return Boolean(route && ["trajeto", "importado"].includes(route.status) && !showValidatedTrackPositions);
 }
@@ -2876,7 +2880,7 @@ function drawRouteMarkers(validPoints) {
         ? `Ponto ${point.ordem_ponto} - mesmo local de ${displayPoint.overlapCount} pontos`
         : point.tipo_ponto === "no" ? "Nó de controle" : `Ponto ${point.ordem_ponto}`,
       draggable:
-        isEditingMapPoints && !isVisuallyOffset && !isManualPoint(point),
+        isEditingMapPoints && !isVisuallyOffset && canMovePointOnMap(point),
     })
       .bindPopup(createPointPopupContent(point, maxOrder, displayPoint))
       .addTo(routeMapLayer);
@@ -2884,7 +2888,7 @@ function drawRouteMarkers(validPoints) {
     routeMarkerByPointId.set(String(point.id), marker);
 
     if (
-      !isVisuallyOffset && !isManualPoint(point) &&
+      !isVisuallyOffset && canMovePointOnMap(point) &&
       (isEditingMapPoints || point.tipo_ponto === "no")
     ) {
       marker.on("dragstart", () => {
