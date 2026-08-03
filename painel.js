@@ -34,6 +34,7 @@ const trashCount = document.querySelector("#trashCount");
 const selectedRouteTitle = document.querySelector("#selectedRouteTitle");
 const selectedRouteStatus = document.querySelector("#selectedRouteStatus");
 const validateSelectedButton = document.querySelector("#validateSelectedButton");
+const previousStatusButton = document.querySelector("#previousStatusButton");
 const openLayerEditorButton = document.querySelector("#openLayerEditorButton");
 const openDemandHistoryButton = document.querySelector("#openDemandHistoryButton");
 const finishSelectedButton = document.querySelector("#finishSelectedButton");
@@ -70,8 +71,6 @@ const mapModalBackdrop = document.querySelector("#mapModalBackdrop");
 const mapModalTitle = document.querySelector("#mapModalTitle");
 const mapPointSearch = document.querySelector("#mapPointSearch");
 const mapSearchButton = document.querySelector("#mapSearchButton");
-const exportKmlButton = document.querySelector("#exportKmlButton");
-const exportOrusButton = document.querySelector("#exportOrusButton");
 const exportJsonButton = document.querySelector("#exportJsonButton");
 const exportExcelButton = document.querySelector("#exportExcelButton");
 const mapViewInputs = document.querySelectorAll('input[name="mapView"], input[name="mapViewModal"]');
@@ -677,17 +676,50 @@ function buildExportSummary(route, points) {
   };
 }
 
-function buildJsonExport(route, points) {
+function getJsonPointName(route, point, manualIndex, manualTotal) {
+  if (!isManualPoint(point) || manualIndex < 0) {
+    return `Ponto ${getExportName(route)} - ${getPointTime(point) || point.ordem_ponto}`;
+  }
+
+  const direction = String(route?.sentido || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  const isFirst = manualIndex === 0;
+  const isLast = manualIndex === manualTotal - 1;
+  const clientName = String(route?.cliente || "Cliente").trim() || "Cliente";
+
+  if (direction === "entrada") {
+    if (isFirst) return "Primeiro ponto";
+    if (isLast) return clientName;
+    return "Ponto de embarque";
+  }
+
+  if (direction === "saida") {
+    if (isFirst) return clientName;
+    if (isLast) return "Último ponto";
+    return "Ponto de desembarque";
+  }
+
+  return `Ponto ${getExportName(route)} - ${getPointTime(point) || point.ordem_ponto}`;
+}
+
+function buildJsonExport(route, points, routedLatLngs = null) {
   const trackPoints = getRouteTrackPoints(points);
   const stopPoints = getRouteStopPoints(points);
   const officialGeometry = getOfficialRouteGeometry(route);
+  const exportGeometry = routedLatLngs?.length ? routedLatLngs : officialGeometry;
+  const manualIndexByPoint = new Map(
+    stopPoints.map((point, index) => [point, index])
+  );
 
   return JSON.stringify(
     {
       resumo: buildExportSummary(route, points),
       trajeto: {
-        quantidade_pontos: officialGeometry.length || trackPoints.length,
-        coordenadas: (officialGeometry.length ? officialGeometry.map(([latitude, longitude]) => ({ latitude, longitude })) : trackPoints).map((point, index) => ({
+        quantidade_pontos: exportGeometry.length || trackPoints.length,
+        coordenadas: (exportGeometry.length ? exportGeometry.map(([latitude, longitude]) => ({ latitude, longitude })) : trackPoints).map((point, index) => ({
           ordem: index + 1,
           lat: point.latitude,
           lon: point.longitude,
@@ -695,7 +727,12 @@ function buildJsonExport(route, points) {
       },
       pontos: stopPoints.map((point, index) => ({
         ordem: index + 1,
-        nome: `Ponto ${getExportName(route)} - ${getPointTime(point) || point.ordem_ponto}`,
+        nome: getJsonPointName(
+          route,
+          point,
+          manualIndexByPoint.get(point) ?? -1,
+          stopPoints.length
+        ),
         horario: getPointTime(point),
         descricao: getPointTypeLabel(point.tipo_ponto),
         lat: point.latitude,
@@ -757,7 +794,6 @@ function buildKmlExport(route, points) {
     </Placemark>`;
     })
     .join("\n");
-
   return `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
@@ -1167,11 +1203,33 @@ async function exportSelectedRoute(format) {
   }
 
   if (format === "json") {
-    downloadTextFile(
-      `${filename}-trajeto-pontos.json`,
-      buildJsonExport(route, currentRoutePoints),
-      "application/json;charset=utf-8"
-    );
+    const exportPoints = [...currentRoutePoints];
+    const trackPoints = getRouteTrackPoints(exportPoints);
+    if (trackPoints.length < 2) {
+      setMessage("O trajeto precisa ter pelo menos dois registros para exportar em JSON.", "error");
+      return;
+    }
+    exportJsonButton.disabled = true;
+    setMessage("Calculando o trajeto pelas ruas para gerar o JSON...", "");
+    try {
+      const officialGeometry = getOfficialRouteGeometry(route);
+      const routedLatLngs = officialGeometry.length
+        ? officialGeometry
+        : await fetchRoutedLatLngs(getRoutingControlPoints(trackPoints));
+      if (routedLatLngs.length < 2) {
+        throw new Error("nao foi possivel gerar a geometria detalhada da rota");
+      }
+      downloadTextFile(
+        `${filename}-trajeto-pontos.json`,
+        buildJsonExport(route, exportPoints, routedLatLngs),
+        "application/json;charset=utf-8"
+      );
+      setMessage("JSON gerado com o trajeto ajustado pelas ruas.", "success");
+    } catch (error) {
+      setMessage(`Erro ao gerar JSON pelas ruas: ${error.message}`, "error");
+    } finally {
+      exportJsonButton.disabled = getRouteTrackPoints(currentRoutePoints).length < 2;
+    }
     return;
   }
 
@@ -3297,14 +3355,18 @@ function getFilteredChecklistLines() {
 }
 
 function canValidateRoute(route) {
-  return route && ["finalizado", "importado", "trajeto"].includes(route.status);
+  return route && ["finalizado", "trajeto"].includes(route.status);
+}
+
+function canReturnRouteStatus(route) {
+  return route && ["finalizado", "trajeto", "importado"].includes(route.status);
 }
 
 function getStatusActionLabel(route) {
   const labels = {
     finalizado: "Validar trajeto",
     trajeto: "Concluir importação",
-    importado: "Voltar à etapa anterior",
+    importado: "Etapa concluída",
   };
 
   return labels[route?.status] || "Alterar etapa";
@@ -3732,6 +3794,7 @@ function renderRouteDetails(route, points) {
     : "Selecione um trajeto para ver o espaco estimado";
   validateSelectedButton.disabled = !canValidateRoute(route);
   validateSelectedButton.textContent = getStatusActionLabel(route);
+  previousStatusButton.disabled = !canReturnRouteStatus(route);
   openLayerEditorButton.classList.toggle("hidden", !route || !["trajeto", "importado"].includes(route.status));
   openDemandHistoryButton.disabled = !route;
   finishSelectedButton.disabled = !route || route.status !== "em_andamento";
@@ -3743,8 +3806,6 @@ function renderRouteDetails(route, points) {
     !lastPointOrderSnapshot ||
     lastPointOrderSnapshot.routeId !== selectedRouteId ||
     Boolean(savingPointId);
-  exportKmlButton.disabled = !route || points.length === 0;
-  exportOrusButton.disabled = !route || trackPointCount < 2;
   exportJsonButton.disabled = !route || points.length === 0;
   exportExcelButton.disabled = !route || points.length === 0;
   renderRouteMap(visiblePoints);
@@ -3982,6 +4043,8 @@ async function finishSelectedRoute() {
     setMessage("Selecione um trajeto ativo para finalizar.", "error");
     return;
   }
+  const actionOperator = requestOperatorForAction("Finalizar trajeto");
+  if (!actionOperator) return;
 
   try {
     finishSelectedButton.disabled = true;
@@ -3998,6 +4061,14 @@ async function finishSelectedRoute() {
     if (error) {
       throw error;
     }
+
+    await recordDemandHistory({
+      option: route,
+      routeId: route.id,
+      status: "finalizado",
+      operator: actionOperator,
+      details: `Etapa avançada: ${getStatusLabel("em_andamento")} → ${getStatusLabel("finalizado")}.`,
+    });
 
     setMessage("Trajeto finalizado pelo painel.", "success");
     await refreshDashboard();
@@ -4021,9 +4092,7 @@ async function changeRouteStatus(route) {
   const actionOperator = requestOperatorForAction(
     route.status === "trajeto"
       ? "Concluir importação"
-      : route.status === "importado"
-        ? "Retornar para Trajeto validado"
-        : "Validar trajeto"
+      : "Validar trajeto"
   );
   if (!actionOperator) return;
 
@@ -4033,7 +4102,6 @@ async function changeRouteStatus(route) {
     const nextStatusByCurrentStatus = {
       finalizado: "trajeto",
       trajeto: "importado",
-      importado: "trajeto",
     };
     const nextStatus = nextStatusByCurrentStatus[previousStatus];
 
@@ -4051,17 +4119,13 @@ async function changeRouteStatus(route) {
       routeId: route.id,
       status: nextStatus,
       operator: actionOperator,
-      details: previousStatus === "importado"
-        ? "Rota alterada e retornada para Trajeto validado."
-        : null,
+      details: `Etapa avançada: ${getStatusLabel(previousStatus)} → ${getStatusLabel(nextStatus)}.`,
     });
 
     setMessage(
       nextStatus === "importado"
         ? "Importação concluída. O arquivo foi encaminhado para a etapa final do processo."
-        : previousStatus === "importado"
-          ? "Status retornado para a etapa anterior: Trajeto validado."
-          : "Trajeto validado com sucesso.",
+        : "Trajeto validado com sucesso.",
       "success"
     );
     await refreshDashboard();
@@ -4074,6 +4138,51 @@ async function changeRouteStatus(route) {
 
 async function validateSelectedRoute() {
   await changeRouteStatus(getSelectedRoute());
+}
+
+async function returnRouteToPreviousStatus() {
+  const route = getSelectedRoute();
+  if (!canReturnRouteStatus(route)) {
+    setMessage("Este trajeto não possui uma etapa anterior disponível.", "error");
+    return;
+  }
+
+  const previousStatusByCurrentStatus = {
+    finalizado: "em_andamento",
+    trajeto: "finalizado",
+    importado: "trajeto",
+  };
+  const currentStatus = route.status;
+  const previousStatus = previousStatusByCurrentStatus[currentStatus];
+  const actionOperator = requestOperatorForAction("Voltar para a etapa anterior");
+  if (!actionOperator) return;
+
+  try {
+    previousStatusButton.disabled = true;
+    const changes = { status: previousStatus };
+    if (previousStatus === "em_andamento") changes.data_hora_fim = null;
+
+    const { error } = await supabaseClient
+      .from("trajetos")
+      .update(changes)
+      .eq("id", route.id)
+      .eq("status", currentStatus);
+    if (error) throw error;
+
+    await recordDemandHistory({
+      option: route,
+      routeId: route.id,
+      status: previousStatus,
+      operator: actionOperator,
+      details: `Etapa retornada: ${getStatusLabel(currentStatus)} → ${getStatusLabel(previousStatus)}.`,
+    });
+    setMessage(`Status retornado para: ${getStatusLabel(previousStatus)}.`, "success");
+    await refreshDashboard();
+  } catch (error) {
+    setMessage(`Erro ao voltar etapa: ${error.message}`, "error");
+  } finally {
+    previousStatusButton.disabled = !canReturnRouteStatus(getSelectedRoute());
+  }
 }
 
 async function deleteRoute(route) {
@@ -4702,8 +4811,6 @@ closeMapButton.addEventListener("click", closeMapModal);
 mapModalBackdrop.addEventListener("click", closeMapModal);
 closeDetailButton.addEventListener("click", closeDetailModal);
 detailModalBackdrop.addEventListener("click", closeDetailModal);
-exportKmlButton.addEventListener("click", () => exportSelectedRoute("kml"));
-exportOrusButton.addEventListener("click", () => exportSelectedRoute("orus"));
 exportJsonButton.addEventListener("click", () => exportSelectedRoute("json"));
 exportExcelButton.addEventListener("click", () => exportSelectedRoute("excel"));
 fitMapButton.addEventListener("click", () => {
@@ -4778,6 +4885,7 @@ mapViewInputs.forEach((input) => {
 });
 finishSelectedButton.addEventListener("click", finishSelectedRoute);
 validateSelectedButton.addEventListener("click", validateSelectedRoute);
+previousStatusButton.addEventListener("click", returnRouteToPreviousStatus);
 deleteSelectedButton.addEventListener("click", deleteSelectedRoute);
 function syncDeleteConfirmationButton() {
   confirmDeleteButton.disabled =

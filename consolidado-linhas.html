@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Consolidado de linhas</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="consolidado-linhas.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script defer src="consolidado-linhas.js"></script>
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Visão consolidada</p>
+          <h1>Consolidado de linhas</h1>
+          <p id="pageStatus">Carregando clientes e linhas...</p>
+        </div>
+        <div class="topbar-actions">
+          <label>
+            <span>Cliente</span>
+            <select id="clientFilter">
+              <option value="">Selecione um cliente</option>
+            </select>
+          </label>
+          <label class="direction-filter">
+            <span>Sentido</span>
+            <select id="directionFilter">
+              <option value="">Todos os sentidos</option>
+              <option value="Entrada">Entrada</option>
+              <option value="Saída">Saída</option>
+            </select>
+          </label>
+          <div class="overview-search">
+            <label>
+              <span>Buscar no mapa</span>
+              <input id="overviewSearch" type="search" placeholder="Endereço, latitude ou longitude" />
+            </label>
+            <button class="button primary" id="overviewSearchButton" type="button">Buscar</button>
+          </div>
+          <label class="checkbox-filter">
+            <input id="overviewRmcOnly" type="checkbox" checked />
+            <span>Buscar somente na região de Campinas</span>
+          </label>
+          <button class="button secondary" id="toggleRouteEditingButton" type="button">
+            Habilitar edição de rota
+          </button>
+          <a class="button secondary" href="painel.html">Voltar ao painel</a>
+        </div>
+      </header>
+
+      <div class="access-route-info hidden" id="overviewAccessInfo"></div>
+      <section class="content">
+        <aside class="lines-panel">
+          <div class="lines-heading">
+            <div>
+              <strong>Linhas do cliente</strong>
+              <small id="visibleLineCount">0 linhas</small>
+            </div>
+            <div>
+              <button class="text-button" id="showAllButton" type="button">Marcar todas</button>
+              <button class="text-button" id="hideAllButton" type="button">Desmarcar todas</button>
+            </div>
+          </div>
+          <div class="line-list" id="lineList">
+            <p class="empty">Selecione um cliente.</p>
+          </div>
+        </aside>
+        <div class="map" id="overviewMap"></div>
+      </section>
+    </main>
+
+    <section class="editor hidden" id="routeEditor" role="dialog" aria-modal="true" aria-labelledby="editorTitle">
+      <div class="editor-backdrop"></div>
+      <div class="editor-dialog">
+        <header class="editor-header">
+          <div>
+            <p class="eyebrow">Edição independente</p>
+            <h2 id="editorTitle">Editar linha</h2>
+            <p id="editorStatus">Somente esta linha será alterada.</p>
+          </div>
+          <div class="editor-actions">
+            <div class="search-control">
+              <input id="locationSearch" type="search" placeholder="Endereço, latitude ou longitude" />
+              <button class="button primary" id="searchButton" type="button">Buscar</button>
+            </div>
+            <label class="editor-checkbox">
+              <input id="editorRmcOnly" type="checkbox" checked />
+              <span>Somente região de Campinas</span>
+            </label>
+            <button class="button secondary" id="addManualPointButton" type="button">Adicionar ponto manual</button>
+            <button class="button secondary" id="clearNodesButton" type="button">Limpar nós</button>
+            <button class="button primary" id="officializeButton" type="button" disabled>Oficializar nova camada</button>
+            <button class="button danger" id="closeEditorButton" type="button">Fechar</button>
+          </div>
+        </header>
+        <div class="editor-help">
+          Clique e arraste diretamente a linha verde até a rua desejada. Cada ponto de embarque azul funciona como
+          trava fixa: somente o trecho entre os pontos ou nós vizinhos será alterado. A trava desaparece apenas
+          quando o ponto for excluído. Somente a linha aberta será oficializada.
+        </div>
+        <div class="access-route-info hidden" id="accessRouteInfo"></div>
+        <div class="editor-body">
+          <aside class="comparison-panel">
+            <h3>Comparação antes × depois</h3>
+            <label>
+              <span>Velocidade média da simulação</span>
+              <div class="speed-field"><input id="averageSpeed" type="number" min="5" max="100" value="30" /><span>km/h</span></div>
+            </label>
+            <div class="comparison-grid">
+              <article>
+                <strong>Versão oficial</strong>
+                <dl id="officialMetrics"></dl>
+              </article>
+              <article class="study-card">
+                <strong>Linha em estudo</strong>
+                <dl id="studyMetrics"></dl>
+              </article>
+            </div>
+            <h3>Pontos do estudo</h3>
+            <div class="study-points" id="studyPointList"></div>
+            <div class="officialization-fields">
+              <label>
+                <span>Operador responsável *</span>
+                <input id="versionOperator" type="text" autocomplete="off" />
+              </label>
+              <label>
+                <span>Motivo/justificativa *</span>
+                <textarea id="versionReason" rows="3"></textarea>
+              </label>
+            </div>
+            <h3>Histórico de versões</h3>
+            <div class="version-history" id="versionHistory">
+              <p class="empty">Carregando versões...</p>
+            </div>
+          </aside>
+          <div class="map editor-map" id="editorMap"></div>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>
