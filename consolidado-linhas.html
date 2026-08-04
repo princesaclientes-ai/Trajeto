@@ -13,10 +13,13 @@
   <body>
     <main class="page-shell">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">Visão consolidada</p>
-          <h1>Consolidado de linhas</h1>
-          <p id="pageStatus">Carregando clientes e linhas...</p>
+        <div class="brand-heading">
+          <img class="header-logo" src="logo-princesa-doeste.png" alt="Princesa D'Oeste" />
+          <div>
+            <p class="eyebrow">Visão consolidada</p>
+            <h1>Consolidado de linhas</h1>
+            <p id="pageStatus">Carregando clientes e linhas...</p>
+          </div>
         </div>
         <div class="topbar-actions">
           <label>
@@ -44,10 +47,6 @@
             <input id="overviewRmcOnly" type="checkbox" checked />
             <span>Buscar somente na região de Campinas</span>
           </label>
-          <button class="button secondary" id="toggleRouteEditingButton" type="button">
-            Habilitar edição de rota
-          </button>
-          <a class="button secondary" href="painel.html">Voltar ao painel</a>
         </div>
       </header>
 
@@ -90,9 +89,8 @@
               <input id="editorRmcOnly" type="checkbox" checked />
               <span>Somente região de Campinas</span>
             </label>
-            <button class="button secondary" id="addManualPointButton" type="button">Adicionar ponto manual</button>
             <button class="button secondary" id="clearNodesButton" type="button">Limpar nós</button>
-            <button class="button primary" id="officializeButton" type="button" disabled>Oficializar nova camada</button>
+            <button class="button primary" id="officializeButton" type="button" disabled>Salvar alteração</button>
             <button class="button danger" id="closeEditorButton" type="button">Fechar</button>
           </div>
         </header>

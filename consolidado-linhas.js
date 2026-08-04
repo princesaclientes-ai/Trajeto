@@ -10,7 +10,6 @@ const directionFilter = document.querySelector("#directionFilter");
 const overviewSearch = document.querySelector("#overviewSearch");
 const overviewSearchButton = document.querySelector("#overviewSearchButton");
 const overviewRmcOnly = document.querySelector("#overviewRmcOnly");
-const toggleRouteEditingButton = document.querySelector("#toggleRouteEditingButton");
 const pageStatus = document.querySelector("#pageStatus");
 const overviewAccessInfo = document.querySelector("#overviewAccessInfo");
 const visibleLineCount = document.querySelector("#visibleLineCount");
@@ -23,7 +22,6 @@ const editorStatus = document.querySelector("#editorStatus");
 const closeEditorButton = document.querySelector("#closeEditorButton");
 const officializeButton = document.querySelector("#officializeButton");
 const clearNodesButton = document.querySelector("#clearNodesButton");
-const addManualPointButton = document.querySelector("#addManualPointButton");
 const locationSearch = document.querySelector("#locationSearch");
 const searchButton = document.querySelector("#searchButton");
 const editorRmcOnly = document.querySelector("#editorRmcOnly");
@@ -67,8 +65,9 @@ let overviewSearchResult = null;
 let overviewAccessGeometry = [];
 let overviewAccessDistanceMeters = 0;
 let overviewAccessSelection = null;
-let isAddingManualPoint = false;
-let overviewEditingEnabled = false;
+const overviewEditingEnabled = true;
+let overviewLoadGeneration = 0;
+let overviewNeedsFit = true;
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
@@ -224,19 +223,26 @@ function overviewRoutingControls(points, maximum = 100) {
     .map((point) => ({ lat: Number(point.latitude), lng: Number(point.longitude) }));
 }
 
-async function prepareOverviewGeometries() {
-  overviewGeometryByRoute = new Map();
+async function prepareOverviewGeometries(loadGeneration) {
   const pendingRoutes = clientRoutes.filter((route) => routeGeometry(route).length < 2);
   let nextIndex = 0;
+  let lastProgressDraw = 0;
 
   async function worker() {
     while (nextIndex < pendingRoutes.length) {
+      if (loadGeneration !== overviewLoadGeneration) return;
       const route = pendingRoutes[nextIndex++];
       const controls = overviewRoutingControls(pointsByRoute.get(String(route.id)) || []);
       if (controls.length < 2) continue;
       try {
         const geometry = await routeThrough(controls);
+        if (loadGeneration !== overviewLoadGeneration) return;
         overviewGeometryByRoute.set(String(route.id), geometry);
+        const now = Date.now();
+        if (now - lastProgressDraw >= 500) {
+          lastProgressDraw = now;
+          drawOverview();
+        }
       } catch (error) {
         console.warn(`Não foi possível roteirizar ${route.nome_linha}.`, error);
       }
@@ -244,6 +250,7 @@ async function prepareOverviewGeometries() {
   }
 
   await Promise.all(Array.from({ length: Math.min(3, pendingRoutes.length) }, () => worker()));
+  if (loadGeneration === overviewLoadGeneration) drawOverview();
 }
 
 function routeGeometry(route) {
@@ -289,16 +296,23 @@ function ensureMaps() {
 
 async function fetchAllPoints(routeIds) {
   const result = [];
-  for (let start = 0; ; start += 1000) {
-    const { data, error } = await db.from("trajeto_pontos")
-      .select("id,trajeto_id,latitude,longitude,ordem_ponto,tipo_ponto,data_hora_registro,precisao")
-      .in("trajeto_id", routeIds)
-      .order("trajeto_id")
-      .order("ordem_ponto")
-      .range(start, start + 999);
-    if (error) throw error;
-    result.push(...(data || []));
-    if (!data || data.length < 1000) break;
+  const pageSize = 1000;
+  const pagesPerBatch = 5;
+  for (let batchStart = 0; ; batchStart += pageSize * pagesPerBatch) {
+    const pages = await Promise.all(Array.from({ length: pagesPerBatch }, (_, pageIndex) => {
+      const start = batchStart + pageIndex * pageSize;
+      return db.from("trajeto_pontos")
+        .select("id,trajeto_id,latitude,longitude,ordem_ponto,tipo_ponto,data_hora_registro,precisao")
+        .in("trajeto_id", routeIds)
+        .order("trajeto_id")
+        .order("ordem_ponto")
+        .range(start, start + pageSize - 1);
+    }));
+    pages.forEach(({ data, error }) => {
+      if (error) throw error;
+      result.push(...(data || []));
+    });
+    if (pages.some(({ data }) => !data || data.length < pageSize)) break;
   }
   return result;
 }
@@ -330,6 +344,8 @@ function latestRoutesForClient(client, direction = "") {
 }
 
 async function selectClient() {
+  const loadGeneration = ++overviewLoadGeneration;
+  overviewNeedsFit = true;
   const client = clientFilter.value;
   clientRoutes = client ? latestRoutesForClient(client, directionFilter.value) : [];
   pointsByRoute = new Map();
@@ -349,16 +365,16 @@ async function selectClient() {
   pageStatus.textContent = "Carregando todos os pontos e itinerários...";
   try {
     const points = await fetchAllPoints(clientRoutes.map((route) => route.id));
+    if (loadGeneration !== overviewLoadGeneration) return;
     points.forEach((point) => {
       const key = String(point.trajeto_id);
       if (!pointsByRoute.has(key)) pointsByRoute.set(key, []);
       pointsByRoute.get(key).push(point);
     });
     renderLineList();
-    pageStatus.textContent = "Ajustando os itinerários para seguirem as ruas...";
-    await prepareOverviewGeometries();
-    if (overviewSearchResult) await calculateOverviewAccessRoute();
-    else drawOverview();
+    drawOverview();
+    pageStatus.textContent = `${clientRoutes.length} linhas exibidas para ${client}.`;
+    if (overviewSearchResult) calculateOverviewAccessRoute();
   } catch (error) {
     pageStatus.textContent = `Erro ao carregar: ${error.message}`;
   }
@@ -401,6 +417,7 @@ async function searchOverviewLocation() {
       query,
     };
     overviewMap.setView([latitude, longitude], 17);
+    overviewNeedsFit = false;
     pageStatus.textContent = `Local encontrado: ${label}`;
     await calculateOverviewAccessRoute();
   } catch (error) {
@@ -444,17 +461,23 @@ function drawOverview() {
     visible += 1;
     const color = COLORS[index % COLORS.length];
     const points = orderedPoints(pointsByRoute.get(String(route.id)) || []);
-    const geometry = routeGeometry(route).length > 1
-      ? routeGeometry(route)
-      : overviewGeometryByRoute.get(String(route.id)) || [];
-    // Nunca desenhar ou medir uma rota ligando coordenadas diretamente. Se a
-    // geometria viária não estiver disponível, exibimos apenas os marcadores.
+    const officialGeometry = routeGeometry(route);
+    const routedGeometry = overviewGeometryByRoute.get(String(route.id)) || [];
+    const provisionalGeometry = points.map((point) => [
+      Number(point.latitude), Number(point.longitude),
+    ]);
+    const geometry = officialGeometry.length > 1
+      ? officialGeometry
+      : routedGeometry.length > 1
+        ? routedGeometry
+        : provisionalGeometry;
     const line = geometry.length > 1 ? geometry : [];
     if (line.length > 1) {
       const routeLine = L.polyline(line, {
         color,
         weight: overviewEditingEnabled ? 7 : 5,
         opacity: .88,
+        dashArray: null,
         className: overviewEditingEnabled ? "selectable-route-line" : "",
       })
         .bindTooltip(
@@ -473,10 +496,12 @@ function drawOverview() {
     }
     points.forEach((point) => {
       const manual = ["primeiro", "manual"].includes(point.tipo_ponto);
-      L.circleMarker([point.latitude, point.longitude], {
-        radius: manual ? 5 : 2, color: manual ? "#fff" : color, weight: manual ? 2 : 1,
-        fillColor: manual ? "#1264c8" : color, fillOpacity: manual ? 1 : .55,
-      }).bindTooltip(
+      if (!manual) return;
+      const overviewPointMarker = L.marker(
+        [point.latitude, point.longitude],
+        { icon: markerIcon("route-stop") }
+      );
+      overviewPointMarker.bindTooltip(
         `${route.nome_linha} · ponto ${point.ordem_ponto}<br>` +
         `Latitude: ${Number(point.latitude).toFixed(6)}<br>` +
         `Longitude: ${Number(point.longitude).toFixed(6)}<br>` +
@@ -502,8 +527,9 @@ function drawOverview() {
   const fittingBounds = overviewAccessGeometry.length > 1
     ? overviewAccessGeometry
     : bounds;
-  if (fittingBounds.length) {
+  if (overviewNeedsFit && fittingBounds.length) {
     overviewMap.fitBounds(fittingBounds, { padding: [35, 35], maxZoom: 16 });
+    overviewNeedsFit = false;
   }
 }
 
@@ -579,21 +605,6 @@ function refreshOverviewAccess() {
   else drawOverview();
 }
 
-function setOverviewEditing(enabled) {
-  overviewEditingEnabled = enabled;
-  toggleRouteEditingButton.classList.toggle("active", enabled);
-  toggleRouteEditingButton.textContent = enabled
-    ? "Desabilitar edição de rota"
-    : "Habilitar edição de rota";
-  lineList.querySelectorAll("[data-edit]").forEach((button) => {
-    button.disabled = !enabled;
-  });
-  pageStatus.textContent = enabled
-    ? "Edição habilitada: clique em qualquer rota visível ou use o botão Novo estudo."
-    : "Edição desabilitada. As rotas estão somente para visualização.";
-  drawOverview();
-}
-
 function closestGeometryIndex(position, geometry = editorGeometry) {
   let best = 0;
   let distance = Infinity;
@@ -601,6 +612,45 @@ function closestGeometryIndex(position, geometry = editorGeometry) {
     const current = Math.hypot(Number(position.lat) - lat, Number(position.lng) - lng);
     if (current < distance) { distance = current; best = index; }
   });
+  return best;
+}
+
+function closestPointOnGeometry(position, geometry = editorGeometry) {
+  if (!geometry.length) return null;
+  if (geometry.length === 1) {
+    return {
+      lat: geometry[0][0], lng: geometry[0][1], geometryPosition: 0,
+      distance: distanceMeters([Number(position.lat), Number(position.lng)], geometry[0]),
+    };
+  }
+  const latitudeScale = Math.cos(Number(position.lat) * Math.PI / 180);
+  let best = null;
+  for (let index = 0; index < geometry.length - 1; index += 1) {
+    const [startLat, startLng] = geometry[index];
+    const [endLat, endLng] = geometry[index + 1];
+    const dx = (endLng - startLng) * latitudeScale;
+    const dy = endLat - startLat;
+    const px = (Number(position.lng) - startLng) * latitudeScale;
+    const py = Number(position.lat) - startLat;
+    const lengthSquared = dx * dx + dy * dy;
+    const ratio = lengthSquared > 0
+      ? Math.max(0, Math.min(1, (px * dx + py * dy) / lengthSquared))
+      : 0;
+    const projected = [
+      startLat + (endLat - startLat) * ratio,
+      startLng + (endLng - startLng) * ratio,
+    ];
+    const distance = distanceMeters(
+      [Number(position.lat), Number(position.lng)],
+      projected
+    );
+    if (!best || distance < best.distance) {
+      best = {
+        lat: projected[0], lng: projected[1],
+        geometryPosition: index + ratio, distance,
+      };
+    }
+  }
   return best;
 }
 
@@ -702,7 +752,6 @@ async function removeEditorNode(node) {
 
 function enableLineDragging(line) {
   line.on("mousedown", (event) => {
-    if (isAddingManualPoint) return;
     if (event.originalEvent?.button !== undefined && event.originalEvent.button !== 0) return;
     L.DomEvent.stop(event.originalEvent);
     const sourceIndex = closestGeometryIndex(event.latlng);
@@ -711,12 +760,23 @@ function enableLineDragging(line) {
     }).addTo(editorLayer);
     editorMap.dragging.disable();
     editorStatus.textContent = "Arraste a linha até a rua desejada e solte.";
-    const move = (moveEvent) => preview.setLatLng(moveEvent.latlng);
+    const startPoint = editorMap.latLngToContainerPoint(event.latlng);
+    let hasDragged = false;
+    const move = (moveEvent) => {
+      preview.setLatLng(moveEvent.latlng);
+      const currentPoint = editorMap.latLngToContainerPoint(moveEvent.latlng);
+      if (startPoint.distanceTo(currentPoint) >= 6) hasDragged = true;
+    };
     const finish = async (upEvent) => {
       editorMap.off("mousemove", move);
       editorMap.off("mouseup", finish);
       document.removeEventListener("mouseup", documentFinish);
       editorMap.dragging.enable();
+      if (!hasDragged) {
+        editorLayer.removeLayer(preview);
+        editorStatus.textContent = "Escolha no pop-up se deseja adicionar um ponto manual ou um nó.";
+        return;
+      }
       const destination = upEvent?.latlng || preview.getLatLng();
       editorStatus.textContent = "Recalculando somente o trecho puxado...";
       try {
@@ -777,7 +837,14 @@ async function recalculateEditor() {
 }
 
 function markerIcon(className) {
-  return L.divIcon({ className: "", html: `<span class="${className}"></span>`, iconSize: [22, 22], iconAnchor: [11, 11] });
+  const isNode = className.includes("route-node");
+  const size = isNode ? 16 : 28;
+  return L.divIcon({
+    className: "",
+    html: `<span class="${className}">${isNode ? "" : "P"}</span>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
 }
 
 function deletePopup(onDelete, label) {
@@ -872,12 +939,8 @@ function renderEditor() {
     }
   });
   removedStudyPoints.forEach((point) => {
-    L.circleMarker([point.latitude, point.longitude], {
-      radius: 7,
-      color: "#fff",
-      weight: 2,
-      fillColor: "#dc2626",
-      fillOpacity: 1,
+    L.marker([point.latitude, point.longitude], {
+      icon: markerIcon("route-stop removed-point"),
     }).bindTooltip("Ponto removido no estudo").addTo(editorLayer);
   });
   editorNodes.forEach((node) => {
@@ -1045,9 +1108,6 @@ async function openEditor(routeId) {
       })).filter((node) => Number.isFinite(node.lat) && Number.isFinite(node.lng))
     : [];
   editorDirty = false;
-  isAddingManualPoint = false;
-  addManualPointButton.classList.remove("active");
-  addManualPointButton.textContent = "Adicionar ponto manual";
   officializeButton.disabled = true;
   versionOperator.value = "";
   versionReason.value = "";
@@ -1086,7 +1146,6 @@ function closeEditor(force = false) {
   }
   routeEditor.classList.add("hidden");
   editorRoute = null;
-  isAddingManualPoint = false;
   accessSearchResult = null;
   accessRouteGeometry = [];
   accessRouteDistanceMeters = 0;
@@ -1099,7 +1158,14 @@ function closeEditor(force = false) {
 }
 
 async function addManualPoint(position) {
-  const geometryIndex = closestGeometryIndex(position);
+  const snapped = closestPointOnGeometry(position);
+  const preserveGeometry = Boolean(snapped && snapped.distance <= 40);
+  const pointPosition = preserveGeometry
+    ? { lat: snapped.lat, lng: snapped.lng }
+    : position;
+  const geometryIndex = preserveGeometry
+    ? snapped.geometryPosition
+    : closestGeometryIndex(position);
   const pointsByGeometry = [...editorPoints].sort((a, b) =>
     closestGeometryIndex({ lat: a.latitude, lng: a.longitude }) -
     closestGeometryIndex({ lat: b.latitude, lng: b.longitude })
@@ -1110,12 +1176,13 @@ async function addManualPoint(position) {
   const data = {
     id: `study-${crypto.randomUUID()}`,
     trajeto_id: editorRoute.id,
-    latitude: position.lat,
-    longitude: position.lng,
+    latitude: pointPosition.lat,
+    longitude: pointPosition.lng,
     ordem_ponto: 0,
     tipo_ponto: "manual",
     data_hora_registro: new Date().toISOString(),
     precisao: null,
+    preservesStudyGeometry: preserveGeometry,
   };
   if (insertionIndex < 0) pointsByGeometry.push(data);
   else pointsByGeometry.splice(insertionIndex, 0, data);
@@ -1123,29 +1190,73 @@ async function addManualPoint(position) {
     ...point,
     ordem_ponto: index + 1,
   }));
-  await recalculateEditor();
+  if (preserveGeometry) {
+    editorDirty = true;
+    officializeButton.disabled = false;
+    renderEditor();
+    editorStatus.textContent =
+      "Ponto incluído sobre o trajeto existente. Quilometragem e horários foram preservados.";
+  } else {
+    await recalculateEditor();
+  }
   await calculateAccessRoute();
 }
 
 async function deleteManualPoint(point) {
   if (!String(point.id).startsWith("study-")) removedStudyPoints.push({ ...point });
   editorPoints = editorPoints.filter((item) => item.id !== point.id);
-  await recalculateEditor();
+  if (point.preservesStudyGeometry) {
+    editorPoints = orderedPoints(editorPoints).map((item, index) => ({
+      ...item, ordem_ponto: index + 1,
+    }));
+    editorDirty = true;
+    officializeButton.disabled = false;
+    renderEditor();
+    editorStatus.textContent =
+      "Ponto removido sem alterar a geometria, a quilometragem ou os horários.";
+  } else {
+    await recalculateEditor();
+  }
   await calculateAccessRoute();
 }
 
-async function handleEditorMapClick(event) {
+function handleEditorMapClick(event) {
   if (!editorRoute || event.originalEvent?.target?.closest?.(".leaflet-control, .leaflet-popup")) return;
-  if (!isAddingManualPoint) return;
-  try {
-    editorStatus.textContent = "Incluindo ponto manual...";
-    await addManualPoint(event.latlng);
-    isAddingManualPoint = false;
-    addManualPointButton.classList.remove("active");
-    addManualPointButton.textContent = "Adicionar ponto manual";
-  } catch (error) {
-    editorStatus.textContent = `Erro: ${error.message}`;
-  }
+  const position = event.latlng;
+  const container = document.createElement("div");
+  const title = document.createElement("strong");
+  title.textContent = "O que deseja adicionar aqui?";
+  const actions = document.createElement("div");
+  actions.className = "point-copy-actions";
+  const pointButton = document.createElement("button");
+  pointButton.type = "button";
+  pointButton.textContent = "Ponto manual";
+  pointButton.addEventListener("click", async () => {
+    editorMap.closePopup();
+    try {
+      editorStatus.textContent = "Incluindo ponto manual...";
+      await addManualPoint(position);
+    } catch (error) {
+      editorStatus.textContent = `Erro: ${error.message}`;
+    }
+  });
+  const nodeButton = document.createElement("button");
+  nodeButton.type = "button";
+  nodeButton.textContent = "Nó da rota";
+  nodeButton.addEventListener("click", async () => {
+    editorMap.closePopup();
+    try {
+      editorStatus.textContent = "Incluindo nó e recalculando somente o trecho...";
+      await reshapeAt(position, closestGeometryIndex(position));
+      renderEditor();
+      editorStatus.textContent = "Nó incluído. Oficialize para salvar.";
+    } catch (error) {
+      editorStatus.textContent = `Erro ao incluir o nó: ${error.message}`;
+    }
+  });
+  actions.append(pointButton, nodeButton);
+  container.append(title, actions);
+  L.popup().setLatLng(position).setContent(container).openOn(editorMap);
 }
 
 function distanceMeters(a, b) {
@@ -1490,8 +1601,16 @@ async function officialize() {
     versionReason.focus();
     return;
   }
+  const confirmed = window.confirm(
+    "Ao salvar, esta rota em estudo passará a ser a versão oficial da linha. " +
+    "A versão oficial anterior será preservada no histórico. Deseja continuar?"
+  );
+  if (!confirmed) {
+    editorStatus.textContent = "Alteração não salva. A versão oficial permanece sem mudanças.";
+    return;
+  }
   officializeButton.disabled = true;
-  editorStatus.textContent = "Criando uma nova versão oficial sem apagar a versão anterior...";
+  editorStatus.textContent = "Salvando a alteração como nova versão oficial...";
   const nodes = editorNodes.map((node) => ({ id: node.id, lat: node.lat, lng: node.lng, index: closestGeometryIndex(node) }));
   const officialAudit = calculateMetrics(editorOfficialPoints, editorOfficialGeometry, { official: true });
   const studyAudit = calculateMetrics(editorPoints, editorGeometry);
@@ -1523,7 +1642,7 @@ async function officialize() {
   if (editorRoute.status === "importado") editorRoute.status = "trajeto";
   const versionNumber = data?.[0]?.version_number || data?.version_number || "-";
   editorStatus.textContent =
-    `Versão ${versionNumber} oficializada. A versão anterior foi preservada e as demais linhas não foram alteradas.`;
+    `Alteração salva como versão oficial ${versionNumber}. A versão anterior foi preservada no histórico.`;
   editorDirty = false;
   await selectClient();
   setTimeout(() => closeEditor(true), 500);
@@ -1558,9 +1677,6 @@ async function searchLocation() {
 
 clientFilter.addEventListener("change", selectClient);
 directionFilter.addEventListener("change", selectClient);
-toggleRouteEditingButton.addEventListener("click", () => {
-  setOverviewEditing(!overviewEditingEnabled);
-});
 overviewSearchButton.addEventListener("click", searchOverviewLocation);
 overviewSearch.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
@@ -1579,16 +1695,6 @@ hideAllButton.addEventListener("click", () => {
 closeEditorButton.addEventListener("click", () => closeEditor());
 routeEditor.querySelector(".editor-backdrop").addEventListener("click", () => closeEditor());
 officializeButton.addEventListener("click", officialize);
-addManualPointButton.addEventListener("click", () => {
-  isAddingManualPoint = !isAddingManualPoint;
-  addManualPointButton.classList.toggle("active", isAddingManualPoint);
-  addManualPointButton.textContent = isAddingManualPoint
-    ? "Cancelar inclusão"
-    : "Adicionar ponto manual";
-  editorStatus.textContent = isAddingManualPoint
-    ? "Clique no mapa para incluir o ponto manual."
-    : "Inclusão de ponto manual cancelada.";
-});
 clearNodesButton.addEventListener("click", async () => {
   editorNodes = [];
   try { await recalculateEditor(); } catch (error) { editorStatus.textContent = `Erro: ${error.message}`; }

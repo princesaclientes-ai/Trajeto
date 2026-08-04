@@ -12,6 +12,49 @@
   --shadow: 0 18px 48px rgba(20, 34, 29, 0.14);
 }
 
+/* Identidade visual Princesa D'Oeste */
+:root,
+.test-app {
+  --bg: #eef6f8;
+  --panel: #ffffff;
+  --text: #182044;
+  --muted: #68718a;
+  --line: #d8e3ea;
+  --primary: #00a69c;
+  --primary-dark: #007f79;
+  --accent: #1f2f88;
+  --danger: #b43d47;
+  --shadow: 0 8px 26px rgba(26,39,99,.11);
+}
+
+body, .test-app {
+  background: radial-gradient(circle at top, rgba(0,166,156,.11), transparent 34%), linear-gradient(180deg,#fff 0%,var(--bg) 100%);
+}
+.app-shell { padding: 16px 14px calc(18px + env(safe-area-inset-bottom)); gap: 10px; }
+.panel { padding: 18px; border-radius: 14px; border-top: 4px solid var(--accent); }
+.brand-block, .route-header { margin-bottom: 16px; }
+.company-logo { width: min(220px, 78vw); margin-bottom: 12px; }
+h1 { color: var(--accent); letter-spacing: -.02em; }
+.eyebrow { color: var(--primary-dark); letter-spacing: .06em; }
+.quick-guide { margin-bottom: 14px; padding: 12px; border-radius: 10px; background: #f6fbfb; border-color: #cce7e5; }
+.form-stack { gap: 12px; }
+input, select, textarea { border-radius: 10px; border-color: var(--line); }
+input:focus, select:focus, textarea:focus { outline: 3px solid rgba(0,166,156,.14); border-color: var(--primary); }
+.primary-button { background: var(--accent); border-radius: 10px; }
+.primary-button:hover { background: #152064; }
+.secondary-button { color: var(--primary-dark); border-color: #9ed8d3; border-radius: 10px; }
+.status-pill { border-radius: 999px; background: rgba(0,166,156,.13); color: var(--primary-dark); }
+
+/* Aplicativo operacional compacto */
+.app-shell { width: min(100%,520px); }
+.panel, .test-app .panel { padding: 16px 18px; border-top-width: 3px; }
+.company-logo { width: min(180px,62vw); margin-bottom: 10px; }
+.brand-block { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+h1, .test-app h1 { font-size: 1.55rem; }
+.instruction { font-size: .9rem; }
+.quick-guide { font-size: .88rem; }
+.primary-button, .secondary-button { min-height: 44px; }
+
 * {
   box-sizing: border-box;
 }
@@ -766,3 +809,16 @@ body.help-open {
     height: 220px;
   }
 }
+
+/* Acabamento compacto da marca */
+body, .test-app { background: radial-gradient(circle at top, rgba(0,166,156,.11), transparent 34%), linear-gradient(180deg,#fff 0%,var(--bg) 100%); }
+.app-shell { padding: 16px 14px calc(18px + env(safe-area-inset-bottom)); gap: 10px; }
+.panel, .test-app .panel { padding: 18px; border-radius: 14px; border-top: 4px solid var(--accent); box-shadow: var(--shadow); }
+.brand-block, .route-header { margin-bottom: 16px; }
+.company-logo { width: min(220px, 78vw); margin-bottom: 12px; }
+h1, .test-app h1 { color: var(--accent); letter-spacing: -.02em; }
+.eyebrow { color: var(--primary-dark); letter-spacing: .06em; }
+.quick-guide { margin-bottom: 14px; padding: 12px; border-radius: 10px; background: #f6fbfb; border-color: #cce7e5; }
+input, select, textarea, .primary-button, .secondary-button { border-radius: 10px; }
+.primary-button, .test-app .primary-button { background: var(--accent); }
+.status-pill { border-radius: 999px; background: rgba(0,166,156,.13); color: var(--primary-dark); }

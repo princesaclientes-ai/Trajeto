@@ -19,10 +19,14 @@
   </head>
   <body>
     <main class="dashboard-shell">
+      <div class="dashboard-fixed-region">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">Espelho da captura</p>
-          <h1>Painel de Pontos</h1>
+        <div class="brand-heading">
+          <img class="header-logo" src="logo-princesa-doeste.png" alt="Princesa D'Oeste" />
+          <div>
+            <p class="eyebrow">Gestão de trajetos</p>
+            <h1>Painel de Pontos</h1>
+          </div>
         </div>
         <div class="topbar-actions">
           <button class="button secondary help-questions-button" id="openHelpQuestionsButton" type="button">
@@ -118,6 +122,10 @@
             </select>
           </label>
         </div>
+      </section>
+      </div>
+
+      <section class="tracking-results-panel" aria-label="Linhas acompanhadas">
         <div class="tracking-checklist" id="trackingChecklist"></div>
       </section>
 
@@ -194,8 +202,8 @@
               <button class="button danger" id="deleteSelectedButton" type="button" disabled>
                 Excluir
               </button>
-              <button class="button secondary" id="closeDetailButton" type="button">
-                Fechar
+              <button class="modal-corner-close" id="closeDetailButton" type="button" aria-label="Fechar detalhes" title="Fechar">
+                <span aria-hidden="true">×</span>
               </button>
             </div>
           </div>
@@ -413,7 +421,9 @@
             <button class="map-fit-button" id="addLayerManualPointButton" type="button">Adicionar ponto manual</button>
             <button class="map-fit-button" id="clearLayerNodesButton" type="button">Limpar nós</button>
             <button class="map-fit-button" id="saveOfficialLayerButton" type="button" disabled>Oficializar camada</button>
-            <button class="map-close-button" id="closeLayerEditorButton" type="button">Fechar</button>
+            <button class="modal-corner-close" id="closeLayerEditorButton" type="button" aria-label="Fechar editor de camada" title="Fechar">
+              <span aria-hidden="true">×</span>
+            </button>
           </div>
         </header>
         <div class="layer-editor-help">Clique e arraste a linha verde até a rua desejada. Cada ponto de embarque azul também funciona como um nó fixo: somente o trecho entre os pontos ou nós vizinhos será alterado. A trava desaparece apenas quando o ponto for excluído.</div>

@@ -7,6 +7,107 @@
   --danger: #b43b35;
 }
 
+/* Identidade visual Princesa D'Oeste */
+:root {
+  --primary: #1f2f88;
+  --primary-dark: #152064;
+  --brand-teal: #00a69c;
+  --text: #182044;
+  --muted: #68718a;
+  --line: #dce2ec;
+  --danger: #b43d47;
+}
+
+body { background: #f3f6fa; }
+.brand-heading { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.header-logo { display: block; width: 128px; height: auto; }
+.topbar, .editor-header { padding: 9px 14px; gap: 14px; box-shadow: 0 3px 14px rgba(26,39,99,.06); }
+.topbar h1, .editor-header h2 { color: var(--primary); letter-spacing: -.02em; }
+.topbar h1 { font-size: 1.55rem; }
+.eyebrow { color: var(--brand-teal); letter-spacing: .06em; }
+.topbar-actions, .editor-actions { gap: 7px; }
+.topbar-actions label { min-width: 190px; }
+select, input { min-height: 38px; border-color: var(--line); border-radius: 9px; }
+select:focus, input:focus, textarea:focus { outline: 3px solid rgba(0,166,156,.14); border-color: var(--brand-teal); }
+.button { min-height: 38px; border-radius: 9px; padding-inline: 13px; }
+.button.primary, .button.active { background: var(--primary); border-color: var(--primary); }
+.button.primary:hover, .button.active:hover { background: var(--primary-dark); }
+.button.secondary:hover { color: #fff; background: var(--brand-teal); border-color: var(--brand-teal); }
+.lines-panel { padding: 10px; background: #f7f9fc; }
+.line-card { border-radius: 11px; box-shadow: 0 3px 12px rgba(26,39,99,.06); }
+.editor-dialog { border-radius: 14px; box-shadow: 0 18px 60px rgba(21,32,100,.2); }
+
+/* Regra final do cabeçalho institucional */
+.topbar {
+  min-height: 70px;
+  padding: 8px 14px;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: #121a3f;
+  box-shadow: 0 5px 18px rgba(15,24,62,.18);
+}
+.brand-heading { flex: 0 0 300px; gap: 10px; align-items: center; }
+.header-logo { width: 105px; padding: 4px 6px; border-radius: 5px; background: #fff; }
+.topbar h1 { color: #fff; font-size: 1.12rem; line-height: 1.05; }
+.topbar .eyebrow { margin-bottom: 2px; color: #4fd6cc; font-size: .62rem; }
+.topbar #pageStatus { max-width: 180px; color: #bfc8e3; font-size: .66rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topbar-actions { flex: 1; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.topbar-actions label { min-width: 145px; gap: 2px; color: #cbd2e8; font-size: .65rem; }
+.topbar-actions .direction-filter { min-width: 120px; }
+.topbar-actions .checkbox-filter { min-width: 145px; max-width: 150px; color: #fff; font-size: .65rem; }
+.overview-search label { min-width: 190px; }
+.topbar select, .topbar input, .topbar .button { min-height: 35px; font-size: .75rem; }
+.topbar .button.primary { color: #fff; background: #00a69c; border-color: #00a69c; }
+.topbar .button.secondary { color: #fff; border-color: rgba(255,255,255,.24); background: rgba(255,255,255,.07); }
+
+@media (max-width: 1050px) {
+  .topbar { flex-direction: column; align-items: stretch; }
+  .brand-heading { flex-basis: auto; }
+  .topbar-actions { flex-wrap: wrap; justify-content: flex-start; }
+}
+
+/* Cabeçalho corporativo compacto */
+.topbar {
+  min-height: 66px;
+  padding: 8px 14px;
+  border: 0;
+  background: #121a3f;
+  box-shadow: 0 5px 18px rgba(15,24,62,.18);
+}
+.brand-heading { flex: 0 1 auto; gap: 11px; }
+.header-logo { width: 100px; padding: 4px 7px; border-radius: 6px; background: #fff; }
+.topbar h1 { color: #fff; font-size: 1.18rem; }
+.topbar .eyebrow { margin-bottom: 2px; color: #4fd6cc; font-size: .64rem; }
+.topbar #pageStatus { max-width: 300px; overflow: hidden; color: #cbd2e8; font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.topbar-actions { flex-wrap: nowrap; align-items: center; gap: 6px; }
+.topbar-actions label { min-width: 150px; gap: 2px; color: #cbd2e8; font-size: .67rem; }
+.topbar-actions .direction-filter { min-width: 125px; }
+.topbar-actions .checkbox-filter { min-width: 150px; max-width: 170px; color: #f7f9ff; font-size: .68rem; }
+.overview-search label { min-width: 220px; }
+.topbar select, .topbar input, .topbar .button { min-height: 36px; }
+.topbar .button.primary { background: #00a69c; border-color: #00a69c; }
+.topbar .button.secondary { color: #fff; border-color: rgba(255,255,255,.24); background: rgba(255,255,255,.07); }
+.topbar .button.secondary:hover { background: #00a69c; border-color: #00a69c; }
+.content { grid-template-columns: 320px 1fr; }
+.lines-heading { margin-bottom: 8px; }
+
+@media (max-width: 1180px) {
+  .topbar { align-items: flex-start; }
+  .topbar-actions { flex-wrap: wrap; }
+}
+.editor-help { color: var(--primary); background: #f0f2ff; }
+.comparison-panel { background: #f7f9fc; }
+.comparison-grid article, .study-point-row, .version-card { border-radius: 10px; }
+.study-card { border-color: var(--brand-teal) !important; }
+.route-stop { background: #168bd2; }
+
+@media (max-width: 980px) {
+  .header-logo { width: 108px; }
+  .brand-heading { align-items: flex-start; }
+}
+
 * { box-sizing: border-box; }
 
 html, body { height: 100%; }
@@ -303,15 +404,18 @@ select, input {
 .route-stop {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   border: 3px solid #fff;
   border-radius: 50%;
   background: #1264c8;
+  color: #fff;
+  font-size: .9rem;
+  font-weight: 900;
   box-shadow: 0 1px 5px rgba(0,0,0,.45);
 }
 
-.route-stop.new-point { background: #16a34a; }
+.route-stop.removed-point { background: #dc2626; }
 .official-reference-line { stroke-dasharray: 8 8; }
 
 .popup-danger {
@@ -335,3 +439,29 @@ select, input {
   .lines-panel { border-right: 0; border-bottom: 1px solid var(--line); }
   .search-control input { width: 190px; }
 }
+
+/* Acabamento compacto da marca */
+body { background: #f3f6fa; }
+.topbar, .editor-header { padding: 9px 14px; gap: 14px; box-shadow: 0 3px 14px rgba(26,39,99,.06); }
+.topbar h1, .editor-header h2 { color: var(--primary); }
+.topbar h1 { font-size: 1.55rem; }
+.eyebrow { color: var(--brand-teal); letter-spacing: .06em; }
+.button, select, input { min-height: 38px; border-radius: 9px; }
+.button.primary, .button.active { background: var(--primary); border-color: var(--primary); }
+.lines-panel, .comparison-panel { background: #f7f9fc; }
+.line-card, .comparison-grid article, .study-point-row, .version-card { border-radius: 10px; box-shadow: 0 3px 12px rgba(26,39,99,.05); }
+.editor-dialog { border-radius: 14px; box-shadow: 0 18px 60px rgba(21,32,100,.2); }
+body .page-shell > .topbar { min-height: 70px; padding: 8px 14px; flex-direction: row; align-items: center; gap: 12px; border: 0; background: #121a3f; box-shadow: 0 5px 18px rgba(15,24,62,.18); }
+body .page-shell > .topbar .brand-heading { flex: 0 0 300px; gap: 10px; align-items: center; }
+body .page-shell > .topbar .header-logo { width: 105px; padding: 4px 6px; border-radius: 5px; background: #fff; }
+body .page-shell > .topbar h1 { color: #fff; font-size: 1.12rem; line-height: 1.05; }
+body .page-shell > .topbar .eyebrow { margin-bottom: 2px; color: #4fd6cc; font-size: .62rem; }
+body .page-shell > .topbar #pageStatus { max-width: 180px; color: #bfc8e3; font-size: .66rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body .page-shell > .topbar .topbar-actions { flex: 1; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 6px; }
+body .page-shell > .topbar .topbar-actions label { min-width: 145px; gap: 2px; color: #cbd2e8; font-size: .65rem; }
+body .page-shell > .topbar .topbar-actions .direction-filter { min-width: 120px; }
+body .page-shell > .topbar .topbar-actions .checkbox-filter { min-width: 145px; max-width: 150px; color: #fff; font-size: .65rem; }
+body .page-shell > .topbar .overview-search label { min-width: 190px; }
+body .page-shell > .topbar select, body .page-shell > .topbar input, body .page-shell > .topbar .button { min-height: 35px; font-size: .75rem; }
+body .page-shell > .topbar .button.primary { color: #fff; background: #00a69c; border-color: #00a69c; }
+body .page-shell > .topbar .button.secondary { color: #fff; border-color: rgba(255,255,255,.24); background: rgba(255,255,255,.07); }

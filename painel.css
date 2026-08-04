@@ -12,6 +12,98 @@
   --shadow: 0 14px 34px rgba(20, 34, 29, 0.11);
 }
 
+/* Identidade visual Princesa D'Oeste */
+:root {
+  --bg: #f3f6fa;
+  --panel: #ffffff;
+  --text: #182044;
+  --muted: #68718a;
+  --line: #dce2ec;
+  --primary: #1f2f88;
+  --primary-dark: #152064;
+  --brand-teal: #00a69c;
+  --warning: #b56f12;
+  --danger: #b43d47;
+  --shadow: 0 6px 20px rgba(26, 39, 99, .08);
+}
+
+.brand-heading { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.header-logo { width: 138px; height: auto; display: block; }
+.topbar { padding: 10px 14px; margin-bottom: 12px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.9); }
+.topbar h1 { color: var(--primary); font-size: 1.55rem; letter-spacing: -.02em; }
+.eyebrow { color: var(--brand-teal); letter-spacing: .06em; }
+.dashboard-shell { width: 100%; padding: 12px 16px; }
+.topbar-actions { gap: 7px; }
+.button, .live-toggle { min-height: 38px; border-radius: 9px; padding-inline: 13px; }
+.button.secondary:hover { color: #fff; border-color: var(--primary); background: var(--primary); }
+.stats-grid { gap: 10px; margin-bottom: 12px; }
+.stat-card, .tracking-checklist-panel, .route-list-panel, .detail-panel { border-radius: 12px; box-shadow: var(--shadow); }
+.stat-card { padding: 12px 14px; border-top: 3px solid var(--brand-teal); }
+.stat-card strong { margin-top: 9px; color: var(--primary); font-size: 1.45rem; }
+
+/* Regra final do cabeçalho institucional */
+.topbar {
+  min-height: 70px;
+  padding: 8px 14px;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  border: 0;
+  border-radius: 10px;
+  background: #121a3f;
+  box-shadow: 0 5px 18px rgba(15,24,62,.18);
+}
+.brand-heading { gap: 10px; align-items: center; }
+.header-logo { width: 105px; padding: 4px 6px; border-radius: 5px; background: #fff; }
+.topbar h1 { color: #fff; font-size: 1.12rem; }
+.topbar .eyebrow { margin-bottom: 2px; color: #4fd6cc; font-size: .62rem; }
+.topbar-actions { flex-wrap: nowrap; gap: 6px; }
+.topbar .button.secondary, .topbar .live-toggle { min-height: 35px; color: #fff; border-color: rgba(255,255,255,.24); background: rgba(255,255,255,.07); font-size: .75rem; }
+
+@media (max-width: 760px) {
+  .topbar { grid-template-columns: 1fr; border-radius: 0; }
+  .topbar-actions { overflow-x: auto; justify-content: flex-start; }
+}
+
+/* Cabeçalho corporativo compacto */
+.topbar {
+  min-height: 66px;
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 11px;
+  background: #121a3f;
+  box-shadow: 0 5px 18px rgba(15,24,62,.18);
+}
+.brand-heading { gap: 12px; }
+.header-logo { width: 104px; padding: 4px 7px; border-radius: 6px; background: #fff; }
+.topbar h1 { color: #fff; font-size: 1.2rem; }
+.topbar .eyebrow { margin-bottom: 3px; color: #4fd6cc; font-size: .65rem; }
+.topbar-actions { gap: 6px; }
+.topbar .button.secondary, .topbar .live-toggle {
+  min-height: 36px;
+  padding-inline: 11px;
+  border-color: rgba(255,255,255,.22);
+  color: #f7f9ff;
+  background: rgba(255,255,255,.07);
+  box-shadow: none;
+}
+.topbar .button.secondary:hover { border-color: #00a69c; background: #00a69c; }
+.topbar .live-toggle input { accent-color: #4fd6cc; }
+.stats-grid { grid-template-columns: repeat(6,minmax(120px,1fr)); }
+.stat-card { min-height: 86px; }
+
+@media (max-width: 760px) {
+  .topbar { align-items: flex-start; border-radius: 0; }
+  .topbar-actions { width: 100%; overflow-x: auto; justify-content: flex-start; }
+}
+input, select, textarea { border-color: var(--line); border-radius: 9px; }
+input:focus, select:focus, textarea:focus { outline: 3px solid rgba(0,166,156,.14); border-color: var(--brand-teal); }
+.status-pill { border-radius: 999px; }
+
+@media (max-width: 900px) {
+  .header-logo { width: 112px; }
+  .brand-heading { align-items: flex-start; }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -679,13 +771,17 @@ h2 {
 .official-layer-line { cursor: grab; }
 .official-layer-line:active { cursor: grabbing; }
 .layer-boarding-point {
-  display: block;
-  width: 18px;
-  height: 18px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
   box-sizing: border-box;
   border: 3px solid #ffffff;
   border-radius: 50%;
   background: #1264c8;
+  color: #fff;
+  font-size: .9rem;
+  font-weight: 900;
   box-shadow: 0 1px 5px rgba(15, 23, 42, .55);
   pointer-events: none;
 }
@@ -1130,12 +1226,9 @@ h2 {
 
 
 .point-marker.manual,
-.point-marker.primeiro {
-  background: #1264c8;
-}
-
+.point-marker.primeiro,
 .point-marker.duplicado {
-  background: #f28c18;
+  background: #1264c8;
 }
 
 .point-marker.trajeto {
@@ -1894,4 +1987,73 @@ td:nth-child(8) {
 
 .hidden {
   display: none;
+}
+
+/* Acabamento compacto da marca */
+.dashboard-shell { width: 100%; padding: 12px 16px; }
+.topbar { padding: 10px 14px; margin-bottom: 12px; }
+.topbar h1 { color: var(--primary); font-size: 1.55rem; }
+.eyebrow { color: var(--brand-teal); letter-spacing: .06em; }
+.button, .live-toggle { min-height: 38px; border-radius: 9px; }
+.stats-grid { gap: 10px; margin-bottom: 12px; }
+.stat-card, .tracking-checklist-panel, .route-list-panel, .detail-panel { border-radius: 12px; box-shadow: var(--shadow); }
+.stat-card { padding: 12px 14px; border-top: 3px solid var(--brand-teal); }
+.stat-card strong { margin-top: 9px; color: var(--primary); font-size: 1.45rem; }
+body .dashboard-shell > .topbar { min-height: 70px; padding: 8px 14px; margin-bottom: 12px; grid-template-columns: 1fr auto; align-items: center; border: 0; border-radius: 10px; background: #121a3f; box-shadow: 0 5px 18px rgba(15,24,62,.18); }
+body .dashboard-shell > .topbar .brand-heading { gap: 10px; align-items: center; }
+body .dashboard-shell > .topbar .header-logo { width: 105px; padding: 4px 6px; border-radius: 5px; background: #fff; }
+body .dashboard-shell > .topbar h1 { color: #fff; font-size: 1.12rem; }
+body .dashboard-shell > .topbar .eyebrow { margin-bottom: 2px; color: #4fd6cc; font-size: .62rem; }
+body .dashboard-shell > .topbar .topbar-actions { flex-wrap: nowrap; gap: 6px; }
+body .dashboard-shell > .topbar .button.secondary, body .dashboard-shell > .topbar .live-toggle { min-height: 35px; color: #fff; border-color: rgba(255,255,255,.24); background: rgba(255,255,255,.07); font-size: .75rem; }
+.dashboard-fixed-region {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  padding-top: 1px;
+  background: var(--bg);
+}
+.dashboard-fixed-region > .topbar { min-height: 70px; padding: 8px 14px; margin-bottom: 12px; display: grid; grid-template-columns: 1fr auto; align-items: center; border: 0; border-radius: 10px; background: #121a3f; box-shadow: 0 5px 18px rgba(15,24,62,.18); }
+.dashboard-fixed-region > .topbar .brand-heading { gap: 10px; align-items: center; }
+.dashboard-fixed-region > .topbar .header-logo { width: 105px; padding: 4px 6px; border-radius: 5px; background: #fff; }
+.dashboard-fixed-region > .topbar h1 { color: #fff; font-size: 1.12rem; }
+.dashboard-fixed-region > .topbar .eyebrow { margin-bottom: 2px; color: #4fd6cc; font-size: .62rem; }
+.dashboard-fixed-region > .topbar .button.secondary, .dashboard-fixed-region > .topbar .live-toggle { min-height: 35px; color: #fff; border-color: rgba(255,255,255,.24); background: rgba(255,255,255,.07); font-size: .75rem; }
+.dashboard-fixed-region > .tracking-checklist-panel { margin-bottom: 10px; }
+.tracking-results-panel { min-height: 260px; padding-bottom: 18px; }
+.tracking-results-panel .tracking-checklist { padding-top: 0; }
+.detail-header, .layer-editor-dialog .map-header { padding-right: 58px; }
+.modal-corner-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid #d9dfeb;
+  border-radius: 9px;
+  color: #26357e;
+  background: #fff;
+  box-shadow: 0 3px 10px rgba(18,26,63,.1);
+  font: 700 1.7rem/1 Arial, sans-serif;
+  cursor: pointer;
+}
+.modal-corner-close:hover {
+  color: #fff;
+  border-color: #b43d47;
+  background: #b43d47;
+}
+.modal-corner-close:focus-visible {
+  outline: 3px solid rgba(0,166,156,.22);
+  outline-offset: 2px;
+}
+
+@media (max-height: 760px) and (min-width: 981px) {
+  .dashboard-fixed-region .stat-card { min-height: 72px; padding-block: 9px; }
+  .dashboard-fixed-region .stat-card strong { margin-top: 5px; font-size: 1.25rem; }
+  .dashboard-fixed-region .tracking-checklist-header { padding-block: 11px; }
+  .dashboard-fixed-region .tracking-checklist-panel .filters { padding-block: 9px; }
 }

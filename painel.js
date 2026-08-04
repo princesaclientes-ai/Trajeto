@@ -659,6 +659,11 @@ function buildExportSummary(route, points) {
   const trackPoints = getRouteTrackPoints(points);
   const stopPoints = getRouteStopPoints(points);
   const conductor = getRouteConductorInfo(route);
+  const orderedExportPoints = [...points].sort(
+    (first, second) => Number(first.ordem_ponto) - Number(second.ordem_ponto)
+  );
+  const firstPointTime = orderedExportPoints[0]?.data_hora_registro;
+  const lastPointTime = orderedExportPoints[orderedExportPoints.length - 1]?.data_hora_registro;
 
   return {
     cliente: route.cliente || "",
@@ -668,8 +673,8 @@ function buildExportSummary(route, points) {
     garagem: conductor?.garagem || "",
     sentido: route.sentido || "",
     status: getStatusLabel(getRouteStatus(route)),
-    horario_inicio: formatFileDate(route.data_hora_inicio),
-    horario_fim: formatFileDate(route.data_hora_fim),
+    horario_inicio: formatFileDate(firstPointTime || route.data_hora_inicio),
+    horario_fim: formatFileDate(lastPointTime || route.data_hora_fim),
     total_registros: points.length,
     total_trajeto: trackPoints.length,
     total_pontos: stopPoints.length,
@@ -1153,10 +1158,44 @@ function buildExcelExport(route, points) {
 }
 
 async function exportSelectedRoute(format) {
-  const route = getSelectedRoute();
+  let route = getSelectedRoute();
 
-  if (!route || currentRoutePoints.length === 0) {
-    setMessage("Selecione um trajeto com pontos para exportar.", "error");
+  if (!route) {
+    setMessage("Selecione um trajeto para exportar.", "error");
+    return;
+  }
+
+  exportJsonButton.disabled = true;
+  exportExcelButton.disabled = true;
+  setMessage("Atualizando a rota oficial e os pontos antes da exportação...", "");
+  try {
+    const [routeResult, pointsResult] = await Promise.all([
+      supabaseClient.from("trajetos")
+        .select("id, matricula_condutor, cliente, sentido, nome_linha, status, data_hora_inicio, data_hora_fim, created_at, deleted_at, geometria_validada, nos_validacao")
+        .eq("id", route.id)
+        .single(),
+      supabaseClient.from("trajeto_pontos")
+        .select("id, latitude, longitude, data_hora_registro, ordem_ponto, tipo_ponto, precisao")
+        .eq("trajeto_id", route.id)
+        .order("ordem_ponto", { ascending: true }),
+    ]);
+    if (routeResult.error) throw routeResult.error;
+    if (pointsResult.error) throw pointsResult.error;
+    Object.assign(route, routeResult.data);
+    route = routeResult.data;
+    currentRoutePoints = pointsResult.data || [];
+  } catch (error) {
+    setMessage(`Erro ao atualizar os dados para exportação: ${error.message}`, "error");
+    exportJsonButton.disabled = false;
+    exportExcelButton.disabled = false;
+    return;
+  }
+
+  const exportPoints = [...currentRoutePoints];
+  if (exportPoints.length === 0) {
+    setMessage("A rota oficial não possui pontos para exportar.", "error");
+    exportJsonButton.disabled = true;
+    exportExcelButton.disabled = true;
     return;
   }
 
@@ -1165,17 +1204,20 @@ async function exportSelectedRoute(format) {
   if (format === "kml") {
     downloadTextFile(
       `${filename}-trajeto-pontos.kml`,
-      buildKmlExport(route, currentRoutePoints),
+      buildKmlExport(route, exportPoints),
       "application/vnd.google-earth.kml+xml;charset=utf-8"
     );
+    exportJsonButton.disabled = false;
+    exportExcelButton.disabled = false;
     return;
   }
 
   if (format === "orus") {
-    const exportPoints = [...currentRoutePoints];
     const trackPoints = getRouteTrackPoints(exportPoints);
     if (trackPoints.length < 2) {
       setMessage("O trajeto precisa ter pelo menos dois registros para exportar no formato OrUS.", "error");
+      exportJsonButton.disabled = true;
+      exportExcelButton.disabled = false;
       return;
     }
     exportOrusButton.disabled = true;
@@ -1197,16 +1239,19 @@ async function exportSelectedRoute(format) {
     } catch (error) {
       setMessage(`Erro ao gerar OrUS pelas ruas: ${error.message}`, "error");
     } finally {
-      exportOrusButton.disabled = getRouteTrackPoints(currentRoutePoints).length < 2;
+      exportOrusButton.disabled = getRouteTrackPoints(exportPoints).length < 2;
+      exportJsonButton.disabled = getRouteTrackPoints(exportPoints).length < 2;
+      exportExcelButton.disabled = false;
     }
     return;
   }
 
   if (format === "json") {
-    const exportPoints = [...currentRoutePoints];
     const trackPoints = getRouteTrackPoints(exportPoints);
     if (trackPoints.length < 2) {
       setMessage("O trajeto precisa ter pelo menos dois registros para exportar em JSON.", "error");
+      exportJsonButton.disabled = true;
+      exportExcelButton.disabled = false;
       return;
     }
     exportJsonButton.disabled = true;
@@ -1228,16 +1273,20 @@ async function exportSelectedRoute(format) {
     } catch (error) {
       setMessage(`Erro ao gerar JSON pelas ruas: ${error.message}`, "error");
     } finally {
-      exportJsonButton.disabled = getRouteTrackPoints(currentRoutePoints).length < 2;
+      exportJsonButton.disabled = getRouteTrackPoints(exportPoints).length < 2;
+      exportExcelButton.disabled = false;
     }
     return;
   }
 
   downloadBlobFile(
     `${filename}-trajeto-pontos.xlsx`,
-    buildExcelExport(route, currentRoutePoints),
+    buildExcelExport(route, exportPoints),
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   );
+  exportJsonButton.disabled = false;
+  exportExcelButton.disabled = false;
+  setMessage("Excel gerado com a versão oficial mais recente da rota.", "success");
 }
 
 function getMapViewMode() {
@@ -1374,7 +1423,7 @@ function ensureRouteMap() {
 
 function getMarkerIcon(point, isDuplicate = false) {
   const typeClass = isDuplicate ? "duplicado" : point.tipo_ponto || "trajeto";
-  const markerContent = point.tipo_ponto === "no" ? "" : point.ordem_ponto;
+  const markerContent = isManualPoint(point) ? "P" : "";
 
   return L.divIcon({
     className: "",
@@ -1658,9 +1707,9 @@ function renderLayerEditorBoardingPoints() {
       draggable: false,
       icon: L.divIcon({
         className: "",
-        html: '<span class="layer-boarding-point" aria-label="Ponto de embarque"></span>',
-        iconSize: [18, 18],
-        iconAnchor: [9, 9],
+        html: '<span class="layer-boarding-point" aria-label="Ponto de embarque">P</span>',
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
       }),
       title: `Ponto de embarque ${point.ordem_ponto || ""}`.trim(),
     }).addTo(layerEditorStopsLayer);
