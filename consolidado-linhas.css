@@ -277,6 +277,9 @@ select, input {
 .study-point-row.removed { border-color: #e4a09b; background: #fff1f0; }
 .point-order-actions { display: flex; gap: 3px; }
 .point-order-actions button { width: 25px; height: 25px; border: 1px solid var(--line); border-radius: 5px; background: #fff; cursor: pointer; }
+.point-copy-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.point-copy-actions button { border: 1px solid var(--line); border-radius: 5px; background: #f8fafc; color: var(--ink); padding: 4px 7px; font: inherit; font-weight: 700; cursor: pointer; }
+.point-copy-actions button:hover { border-color: var(--green); color: var(--green-dark); }
 .officialization-fields textarea { resize: vertical; border: 1px solid #c8d5d0; border-radius: 8px; padding: 8px; font: inherit; }
 .version-history { display: grid; gap: 7px; }
 .version-card { padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: #fff; font-size: .72rem; }

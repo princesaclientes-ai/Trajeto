@@ -28,6 +28,9 @@ const locationSearch = document.querySelector("#locationSearch");
 const searchButton = document.querySelector("#searchButton");
 const editorRmcOnly = document.querySelector("#editorRmcOnly");
 const averageSpeed = document.querySelector("#averageSpeed");
+const referenceTime = document.querySelector("#referenceTime");
+const referenceTimeLabel = document.querySelector("#referenceTimeLabel");
+const referenceTimeHelp = document.querySelector("#referenceTimeHelp");
 const officialMetrics = document.querySelector("#officialMetrics");
 const studyMetrics = document.querySelector("#studyMetrics");
 const studyPointList = document.querySelector("#studyPointList");
@@ -39,6 +42,7 @@ const accessRouteInfo = document.querySelector("#accessRouteInfo");
 let routes = [];
 let clientRoutes = [];
 let pointsByRoute = new Map();
+let overviewGeometryByRoute = new Map();
 let overviewMap;
 let overviewLayer;
 let editorMap;
@@ -48,6 +52,8 @@ let editorPoints = [];
 let editorOfficialPoints = [];
 let editorGeometry = [];
 let editorOfficialGeometry = [];
+let editorRoutingDurationSeconds = 0;
+let editorRoutingSegmentDurations = [];
 let editorNodes = [];
 let removedStudyPoints = [];
 let accessRouteGeometry = [];
@@ -78,6 +84,52 @@ function normalizedText(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
+function isEntryRoute() {
+  return normalizedText(editorRoute?.sentido).includes("entrada");
+}
+
+function referencePoint(points = editorPoints) {
+  const ordered = orderedPoints(points);
+  return isEntryRoute() ? ordered[ordered.length - 1] : ordered[0];
+}
+
+function clockInputValue(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return [date.getHours(), date.getMinutes(), date.getSeconds()]
+    .map((part) => String(part).padStart(2, "0"))
+    .join(":");
+}
+
+function syncReferenceTimeField() {
+  const isEntry = isEntryRoute();
+  const point = referencePoint();
+  referenceTimeLabel.textContent = isEntry
+    ? "Horário de chegada ao cliente"
+    : "Horário de início da linha";
+  referenceTimeHelp.textContent = isEntry
+    ? "Na entrada, altera a chegada ao cliente no último ponto."
+    : "Na saída, altera o horário do primeiro ponto.";
+  referenceTime.value = clockInputValue(point?.data_hora_registro);
+  referenceTime.disabled = !point;
+}
+
+function updateReferenceTime() {
+  const point = referencePoint();
+  if (!point || !referenceTime.value) return;
+  const [hours, minutes, seconds = 0] = referenceTime.value.split(":").map(Number);
+  const date = new Date(point.data_hora_registro || Date.now());
+  if (Number.isNaN(date.getTime())) date.setTime(Date.now());
+  date.setHours(hours, minutes, seconds, 0);
+  point.data_hora_registro = date.toISOString();
+  editorDirty = true;
+  officializeButton.disabled = false;
+  renderStudyComparison();
+  editorStatus.textContent = isEntryRoute()
+    ? "Chegada ao cliente alterada no último ponto. Os horários anteriores foram recalculados."
+    : "Início da linha alterado no primeiro ponto. Os horários seguintes foram recalculados.";
+}
+
 function formatPointDateTime(value) {
   if (!value) return "Horário não informado";
   const date = new Date(value);
@@ -86,6 +138,55 @@ function formatPointDateTime(value) {
     dateStyle: "short",
     timeStyle: "medium",
   }).format(date);
+}
+
+function nextBusinessDayText(referenceDate = new Date()) {
+  const date = new Date(referenceDate);
+  date.setHours(12, 0, 0, 0);
+  do {
+    date.setDate(date.getDate() + 1);
+  } while (date.getDay() === 0 || date.getDay() === 6);
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = text;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.left = "-9999px";
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand("copy");
+  input.remove();
+}
+
+function pointCoordinatesText(point) {
+  return `${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}`;
+}
+
+function passengerMessage(point, boardingTime) {
+  const coordinates = pointCoordinatesText(point);
+  const mapLink = `https://www.google.com/maps?q=${Number(point.latitude).toFixed(6)},${Number(point.longitude).toFixed(6)}`;
+  return `Prezado condutor,
+
+Foi incluído um novo passageiro na sua linha ${editorRoute?.nome_linha || "-"}.
+Ele iniciará no dia ${nextBusinessDayText()}.
+O horário de embarque do passageiro é às ${boardingTime || "-"}.
+
+Localização do ponto:
+${mapLink}
+
+Latitude e longitude:
+${coordinates}`;
 }
 
 function buildGeocodingUrl(query, restrictToRmc) {
@@ -105,6 +206,44 @@ function orderedPoints(points) {
   return [...points]
     .filter((point) => Number.isFinite(Number(point.latitude)) && Number.isFinite(Number(point.longitude)))
     .sort((a, b) => Number(a.ordem_ponto) - Number(b.ordem_ponto));
+}
+
+function overviewRoutingControls(points, maximum = 100) {
+  const ordered = orderedPoints(points);
+  if (ordered.length <= maximum) {
+    return ordered.map((point) => ({ lat: Number(point.latitude), lng: Number(point.longitude) }));
+  }
+  const step = Math.ceil(ordered.length / maximum);
+  return ordered
+    .filter((point, index) =>
+      index === 0 ||
+      index === ordered.length - 1 ||
+      index % step === 0 ||
+      ["primeiro", "manual", "no"].includes(point.tipo_ponto)
+    )
+    .map((point) => ({ lat: Number(point.latitude), lng: Number(point.longitude) }));
+}
+
+async function prepareOverviewGeometries() {
+  overviewGeometryByRoute = new Map();
+  const pendingRoutes = clientRoutes.filter((route) => routeGeometry(route).length < 2);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < pendingRoutes.length) {
+      const route = pendingRoutes[nextIndex++];
+      const controls = overviewRoutingControls(pointsByRoute.get(String(route.id)) || []);
+      if (controls.length < 2) continue;
+      try {
+        const geometry = await routeThrough(controls);
+        overviewGeometryByRoute.set(String(route.id), geometry);
+      } catch (error) {
+        console.warn(`Não foi possível roteirizar ${route.nome_linha}.`, error);
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(3, pendingRoutes.length) }, () => worker()));
 }
 
 function routeGeometry(route) {
@@ -194,6 +333,7 @@ async function selectClient() {
   const client = clientFilter.value;
   clientRoutes = client ? latestRoutesForClient(client, directionFilter.value) : [];
   pointsByRoute = new Map();
+  overviewGeometryByRoute = new Map();
   overviewAccessGeometry = [];
   overviewAccessSelection = null;
   overviewLayer.clearLayers();
@@ -215,6 +355,8 @@ async function selectClient() {
       pointsByRoute.get(key).push(point);
     });
     renderLineList();
+    pageStatus.textContent = "Ajustando os itinerários para seguirem as ruas...";
+    await prepareOverviewGeometries();
     if (overviewSearchResult) await calculateOverviewAccessRoute();
     else drawOverview();
   } catch (error) {
@@ -302,8 +444,12 @@ function drawOverview() {
     visible += 1;
     const color = COLORS[index % COLORS.length];
     const points = orderedPoints(pointsByRoute.get(String(route.id)) || []);
-    const geometry = routeGeometry(route);
-    const line = geometry.length > 1 ? geometry : points.map((point) => [point.latitude, point.longitude]);
+    const geometry = routeGeometry(route).length > 1
+      ? routeGeometry(route)
+      : overviewGeometryByRoute.get(String(route.id)) || [];
+    // Nunca desenhar ou medir uma rota ligando coordenadas diretamente. Se a
+    // geometria viária não estiver disponível, exibimos apenas os marcadores.
+    const line = geometry.length > 1 ? geometry : [];
     if (line.length > 1) {
       const routeLine = L.polyline(line, {
         color,
@@ -416,8 +562,9 @@ async function calculateOverviewAccessRoute() {
       `Trajeto a pé do endereço até o ponto mais próximo das linhas visíveis: ` +
       `<strong>${(overviewAccessDistanceMeters / 1000).toFixed(2)} km</strong> · ` +
       `Linha ${escapeHtml(route.nome_linha || "-")} · ${escapeHtml(route.sentido || "-")} · ` +
-      `Ponto ${escapeHtml(point.ordem_ponto || "-")} · ` +
-      `${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}`;
+      `Ponto ${escapeHtml(point.ordem_ponto || "-")}<br>` +
+      `Latitude: ${Number(point.latitude).toFixed(6)}<br>` +
+      `Longitude: ${Number(point.longitude).toFixed(6)}`;
     drawOverview();
   } catch (error) {
     overviewAccessGeometry = [];
@@ -516,6 +663,8 @@ async function reshapeAt(position, sourceIndex, existingNode = null) {
     ...routedSegment,
     ...previousGeometry.slice(bounds.endIndex + 1),
   ];
+  editorRoutingDurationSeconds = 0;
+  editorRoutingSegmentDurations = [];
   const node = existingNode || {
     id: crypto.randomUUID(),
     lat: position.lat,
@@ -544,6 +693,8 @@ async function removeEditorNode(node) {
     ...routedSegment,
     ...previousGeometry.slice(bounds.endIndex + 1),
   ];
+  editorRoutingDurationSeconds = 0;
+  editorRoutingSegmentDurations = [];
   editorNodes.forEach((item) => { item.index = closestGeometryIndex(item); });
   editorDirty = true;
   officializeButton.disabled = false;
@@ -586,23 +737,38 @@ function enableLineDragging(line) {
 async function routeThrough(controls) {
   if (controls.length < 2) return controls.map((item) => [item.lat, item.lng]);
   const complete = [];
+  let totalDurationSeconds = 0;
+  const segmentDurations = [];
   for (let start = 0; start < controls.length - 1; start += 20) {
     const chunk = controls.slice(start, Math.min(start + 21, controls.length));
     const coordinates = chunk.map((item) => `${item.lng},${item.lat}`).join(";");
-    const response = await fetch(`${ROUTER_URL}/${coordinates}?overview=full&geometries=geojson`);
+    const response = await fetch(`${ROUTER_URL}/${coordinates}?overview=full&geometries=geojson&annotations=duration`);
     if (!response.ok) throw new Error("serviço de roteirização indisponível");
     const payload = await response.json();
-    const segment = payload.routes?.[0]?.geometry?.coordinates?.map(([lng, lat]) => [lat, lng]) || [];
+    const routed = payload.routes?.[0];
+    const segment = routed?.geometry?.coordinates?.map(([lng, lat]) => [lat, lng]) || [];
+    totalDurationSeconds += Number(routed?.duration) || 0;
+    segmentDurations.push(...(routed?.legs || []).flatMap((leg) => leg?.annotation?.duration || []));
     if (complete.length && segment.length) segment.shift();
     complete.push(...segment);
   }
   if (complete.length < 2) throw new Error("não foi possível calcular a rota pelas ruas");
+  Object.defineProperty(complete, "routingDurationSeconds", {
+    value: totalDurationSeconds,
+    configurable: true,
+  });
+  Object.defineProperty(complete, "routingSegmentDurations", {
+    value: segmentDurations,
+    configurable: true,
+  });
   return complete;
 }
 
 async function recalculateEditor() {
   editorStatus.textContent = "Calculando a rota pelas ruas...";
   editorGeometry = await routeThrough(editorControls());
+  editorRoutingDurationSeconds = Number(editorGeometry.routingDurationSeconds) || 0;
+  editorRoutingSegmentDurations = editorGeometry.routingSegmentDurations || [];
   editorNodes = editorNodes.map((node) => ({ ...node, index: closestGeometryIndex(node) }));
   editorDirty = true;
   officializeButton.disabled = false;
@@ -636,6 +802,27 @@ function pointPopup(point, allowDelete) {
     `Longitude: ${Number(point.longitude).toFixed(6)}<br>` +
     `Horário calculado: ${escapeHtml(scheduled?.calculatedTime || formatPointDateTime(point.data_hora_registro))}`;
   container.appendChild(details);
+
+  const copyActions = document.createElement("div");
+  copyActions.className = "point-copy-actions";
+  const copyCoordinatesButton = document.createElement("button");
+  copyCoordinatesButton.type = "button";
+  copyCoordinatesButton.textContent = "Copiar Lat";
+  copyCoordinatesButton.addEventListener("click", async () => {
+    await copyText(pointCoordinatesText(point));
+    editorStatus.textContent = "Latitude e longitude copiadas.";
+  });
+  const copyMessageButton = document.createElement("button");
+  copyMessageButton.type = "button";
+  copyMessageButton.textContent = "Copiar mensagem";
+  copyMessageButton.addEventListener("click", async () => {
+    const boardingTime = scheduled?.calculatedTime || formatPointDateTime(point.data_hora_registro);
+    await copyText(passengerMessage(point, boardingTime));
+    editorStatus.textContent = "Mensagem do passageiro copiada.";
+  });
+  copyActions.append(copyCoordinatesButton, copyMessageButton);
+  container.appendChild(copyActions);
+
   if (allowDelete) {
     container.appendChild(deletePopup(() => deleteManualPoint(point), "Excluir ponto manual"));
   }
@@ -760,9 +947,9 @@ async function calculateAccessRoute() {
     accessRouteInfo.innerHTML =
       `Trajeto a pé do endereço pesquisado até o ponto mais próximo: ` +
       `<strong>${(accessRouteDistanceMeters / 1000).toFixed(2)} km</strong> · ` +
-      `Ponto ${escapeHtml(accessRouteNearestPoint.ordem_ponto || "-")} · ` +
-      `${Number(accessRouteNearestPoint.latitude).toFixed(6)}, ` +
-      `${Number(accessRouteNearestPoint.longitude).toFixed(6)}`;
+      `Ponto ${escapeHtml(accessRouteNearestPoint.ordem_ponto || "-")}<br>` +
+      `Latitude: ${Number(accessRouteNearestPoint.latitude).toFixed(6)}<br>` +
+      `Longitude: ${Number(accessRouteNearestPoint.longitude).toFixed(6)}`;
     renderEditor();
     const bounds = [...editorGeometry, ...accessRouteGeometry];
     if (bounds.length) editorMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
@@ -809,8 +996,33 @@ async function openEditor(routeId) {
     .map((point) => ({ ...point }));
   editorPoints = editorOfficialPoints.map((point) => ({ ...point }));
   editorGeometry = routeGeometry(editorRoute);
+  editorRoutingDurationSeconds = 0;
+  editorRoutingSegmentDurations = [];
   if (editorGeometry.length < 2) {
-    editorGeometry = editorPoints.map((point) => [Number(point.latitude), Number(point.longitude)]);
+    const overviewGeometry = overviewGeometryByRoute.get(String(routeId)) || [];
+    editorRoutingDurationSeconds = Number(overviewGeometry.routingDurationSeconds) || 0;
+    editorRoutingSegmentDurations = overviewGeometry.routingSegmentDurations || [];
+    editorGeometry = overviewGeometry.map((coordinate) => [...coordinate]);
+  }
+  if (editorGeometry.length < 2) {
+    editorStatus.textContent = "Calculando a geometria inicial pelas ruas...";
+    try {
+      editorGeometry = await routeThrough(overviewRoutingControls(editorPoints));
+      editorRoutingDurationSeconds = Number(editorGeometry.routingDurationSeconds) || 0;
+      editorRoutingSegmentDurations = editorGeometry.routingSegmentDurations || [];
+      overviewGeometryByRoute.set(
+        String(routeId),
+        editorGeometry
+      );
+    } catch (error) {
+      console.warn(`Não foi possível preparar a geometria de ${editorRoute.nome_linha}.`, error);
+      editorGeometry = [];
+      pageStatus.textContent =
+        `Não foi possível abrir ${editorRoute.nome_linha}: o trajeto de carro pelas ruas não foi calculado.`;
+      editorStatus.textContent =
+        "Edição interrompida para evitar cálculo por distância em linha reta.";
+      return;
+    }
   }
   editorOfficialGeometry = editorGeometry.map((coordinate) => [...coordinate]);
   accessRouteGeometry = [];
@@ -824,7 +1036,7 @@ async function openEditor(routeId) {
     { official: true }
   );
   averageSpeed.value = Number.isFinite(baselineMetrics.speed)
-    ? baselineMetrics.speed.toFixed(2)
+    ? baselineMetrics.speed.toFixed(6)
     : "30";
   removedStudyPoints = [];
   editorNodes = Array.isArray(editorRoute.nos_validacao)
@@ -840,6 +1052,7 @@ async function openEditor(routeId) {
   versionOperator.value = "";
   versionReason.value = "";
   editorTitle.textContent = `${editorRoute.nome_linha} · ${editorRoute.sentido}`;
+  syncReferenceTimeField();
   editorStatus.textContent =
     "Nova camada de prévia aberta. Somente esta linha será alterada quando for oficializada.";
   locationSearch.value = overviewSearchResult?.query || "";
@@ -964,21 +1177,36 @@ function formatClock(date) {
 function studySchedule(points, geometry) {
   const ordered = orderedPoints(points);
   if (!ordered.length || geometry.length < 2) return [];
-  const speed = Math.max(5, Number(averageSpeed.value) || 30);
+  const configuredSpeed = Math.max(5, Number(averageSpeed.value) || 30);
   const cumulative = [0];
   for (let index = 1; index < geometry.length; index += 1) {
     cumulative[index] = cumulative[index - 1] + distanceMeters(geometry[index - 1], geometry[index]);
   }
-  const totalSeconds = cumulative[cumulative.length - 1] / (speed * 1000 / 3600);
+  // A velocidade exibida no editor é a única referência de tempo da simulação.
+  // O OSRM continua definindo o caminho pelas ruas, mas sua estimativa de duração
+  // não substitui o tempo oficial/Google usado para preencher a velocidade média.
+  const metersPerSecond = configuredSpeed * 1000 / 3600;
   const isEntry = normalizedText(editorRoute?.sentido).includes("entrada");
   const referencePoint = isEntry ? ordered[ordered.length - 1] : ordered[0];
   const referenceDate = new Date(referencePoint?.data_hora_registro || Date.now());
   if (Number.isNaN(referenceDate.getTime())) referenceDate.setTime(Date.now());
-  const routeStart = new Date(referenceDate.getTime() - (isEntry ? totalSeconds * 1000 : 0));
-  return ordered.map((point) => {
-    const geometryIndex = closestGeometryIndex({ lat: point.latitude, lng: point.longitude }, geometry);
-    const secondsFromStart = cumulative[geometryIndex] / (speed * 1000 / 3600);
-    const calculated = new Date(routeStart.getTime() + secondsFromStart * 1000);
+  const referenceGeometryIndex = isEntry ? geometry.length - 1 : 0;
+  const referenceDistance = cumulative[referenceGeometryIndex];
+
+  return ordered.map((point, pointIndex) => {
+    // Os extremos representam o percurso completo. Usar apenas o ponto mais
+    // próximo podia cortar um trecho e reduzir incorretamente o tempo da linha.
+    const geometryIndex = pointIndex === 0
+      ? 0
+      : pointIndex === ordered.length - 1
+        ? geometry.length - 1
+        : closestGeometryIndex({ lat: point.latitude, lng: point.longitude }, geometry);
+    const pointDistance = cumulative[geometryIndex];
+    const distanceFromReference = pointDistance - referenceDistance;
+    // Entrada: o último horário é a âncora e os anteriores são subtraídos.
+    // Saída: o primeiro horário é a âncora e os seguintes são acrescentados.
+    const secondsFromReference = distanceFromReference / metersPerSecond;
+    const calculated = new Date(referenceDate.getTime() + secondsFromReference * 1000);
     return { ...point, calculatedDate: calculated, calculatedTime: formatClock(calculated) };
   });
 }
@@ -1061,7 +1289,8 @@ function countStudyPointChanges() {
     if (!previous ||
         Number(previous.ordem_ponto) !== Number(point.ordem_ponto) ||
         Math.abs(Number(previous.latitude) - Number(point.latitude)) > 0.0000001 ||
-        Math.abs(Number(previous.longitude) - Number(point.longitude)) > 0.0000001) {
+        Math.abs(Number(previous.longitude) - Number(point.longitude)) > 0.0000001 ||
+        new Date(previous.data_hora_registro).getTime() !== new Date(point.data_hora_registro).getTime()) {
       changes += 1;
     }
   });
@@ -1085,8 +1314,13 @@ function renderStudyComparison() {
       const isNew = String(point.id).startsWith("study-");
       return `<article class="study-point-row ${isNew ? "new" : ""}">
         <div><strong>${isNew ? "Novo ponto" : `Ponto ${point.ordem_ponto}`}</strong><br>
-        ${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}<br>
-        Horário: <strong>${escapeHtml(scheduled?.calculatedTime || "-")}</strong></div>
+        Latitude: ${Number(point.latitude).toFixed(6)}<br>
+        Longitude: ${Number(point.longitude).toFixed(6)}<br>
+        Horário: <strong>${escapeHtml(scheduled?.calculatedTime || "-")}</strong>
+        <div class="point-copy-actions">
+          <button type="button" data-copy-coordinates="${escapeHtml(point.id)}">Copiar Lat</button>
+          <button type="button" data-copy-message="${escapeHtml(point.id)}">Copiar mensagem</button>
+        </div></div>
         <div class="point-order-actions">
           <button type="button" data-move-study="${escapeHtml(point.id)}" data-direction="-1" ${index === 0 ? "disabled" : ""}>↑</button>
           <button type="button" data-move-study="${escapeHtml(point.id)}" data-direction="1" ${index === activeStops.length - 1 ? "disabled" : ""}>↓</button>
@@ -1095,11 +1329,29 @@ function renderStudyComparison() {
     }),
     ...removedStudyPoints.map((point) =>
       `<article class="study-point-row removed"><div><strong>Ponto removido</strong><br>` +
-      `${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}</div></article>`
+      `Latitude: ${Number(point.latitude).toFixed(6)}<br>` +
+      `Longitude: ${Number(point.longitude).toFixed(6)}</div></article>`
     ),
   ].join("") || '<p class="empty">Nenhum ponto de embarque.</p>';
   studyPointList.querySelectorAll("[data-move-study]").forEach((button) => {
     button.addEventListener("click", () => moveStudyPoint(button.dataset.moveStudy, Number(button.dataset.direction)));
+  });
+  studyPointList.querySelectorAll("[data-copy-coordinates]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const point = activeStops.find((item) => String(item.id) === String(button.dataset.copyCoordinates));
+      if (!point) return;
+      await copyText(pointCoordinatesText(point));
+      editorStatus.textContent = "Latitude e longitude copiadas.";
+    });
+  });
+  studyPointList.querySelectorAll("[data-copy-message]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const point = activeStops.find((item) => String(item.id) === String(button.dataset.copyMessage));
+      if (!point) return;
+      const scheduled = scheduleById.get(String(point.id));
+      await copyText(passengerMessage(point, scheduled?.calculatedTime || "-"));
+      editorStatus.textContent = "Mensagem do passageiro copiada.";
+    });
   });
 }
 
@@ -1352,6 +1604,7 @@ averageSpeed.addEventListener("change", () => {
   renderStudyComparison();
   editorStatus.textContent = "Velocidade alterada. Horários e tempo total foram recalculados no estudo.";
 });
+referenceTime.addEventListener("change", updateReferenceTime);
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !routeEditor.classList.contains("hidden")) closeEditor();
 });

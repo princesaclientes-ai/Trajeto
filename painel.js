@@ -2820,7 +2820,8 @@ function createPointPopupContent(point, maxOrder, overlapInfo = null) {
     `<strong>${point.tipo_ponto === "no" ? "Nó de controle" : `Ponto ${escapeHtml(point.ordem_ponto)}`}</strong>`,
     `Tipo: ${escapeHtml(getPointTypeLabel(point.tipo_ponto))}`,
     `Horario: ${escapeHtml(formatDate(point.data_hora_registro))}`,
-    `LatLng: ${escapeHtml(formatNumber(point.latitude))}, ${escapeHtml(formatNumber(point.longitude))}`,
+    `Latitude: ${escapeHtml(formatNumber(point.latitude))}`,
+    `Longitude: ${escapeHtml(formatNumber(point.longitude))}`,
   ];
 
   if (overlapInfo?.overlapCount > 1) {
@@ -3094,7 +3095,11 @@ function showMapSearchLocation(latitude, longitude, label) {
   mapSearchResultMarker = L.marker([latitude, longitude], {
     title: label,
   })
-    .bindPopup(`<strong>${escapeHtml(label)}</strong><br>LatLng: ${escapeHtml(formatNumber(latitude))}, ${escapeHtml(formatNumber(longitude))}`)
+    .bindPopup(
+      `<strong>${escapeHtml(label)}</strong><br>` +
+      `Latitude: ${escapeHtml(formatNumber(latitude))}<br>` +
+      `Longitude: ${escapeHtml(formatNumber(longitude))}`
+    )
     .addTo(routeMap);
 
   mapUserAdjustedView = true;
