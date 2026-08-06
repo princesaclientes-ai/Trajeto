@@ -586,7 +586,7 @@ function getStatusLabel(status) {
     em_andamento: "em andamento",
     finalizado: "aguardando validacao",
     importado: "Importação concluída",
-    trajeto: "trajeto validado",
+    trajeto: "pendente de importação",
     alinhado: "Alinhado com o condutor",
     excluido: "Excluído",
   };
@@ -1304,7 +1304,7 @@ function isManualPoint(point) {
 }
 
 function canMovePointOnMap(point) {
-  return point.tipo_ponto === "manual" || point.tipo_ponto === "trajeto";
+  return isManualPoint(point) || point.tipo_ponto === "trajeto";
 }
 
 function shouldHideTrackPositions(route = getSelectedRoute()) {
@@ -1704,7 +1704,7 @@ function renderLayerEditorBoardingPoints() {
     const marker = L.marker([point.latitude, point.longitude], {
       interactive: true,
       keyboard: false,
-      draggable: false,
+      draggable: true,
       icon: L.divIcon({
         className: "",
         html: '<span class="layer-boarding-point" aria-label="Ponto de embarque">P</span>',
@@ -1723,6 +1723,9 @@ function renderLayerEditorBoardingPoints() {
     popup.className = "point-popup-content";
     const title = document.createElement("strong");
     title.textContent = `Ponto de embarque ${point.ordem_ponto || ""}`.trim();
+    const moveHint = document.createElement("span");
+    moveHint.className = "popup-edit-hint";
+    moveHint.textContent = "Arraste o ponto para ajustar sua posição.";
     const removeButton = document.createElement("button");
     removeButton.type = "button";
     removeButton.className = "popup-danger-button";
@@ -1737,8 +1740,31 @@ function renderLayerEditorBoardingPoints() {
         "Ponto removido e rota recalculada. Oficialize a camada para salvar.";
       renderOfficialLayerEditor();
     });
-    popup.append(title, removeButton);
+    popup.append(title, moveHint, removeButton);
     marker.bindPopup(popup);
+    marker.on("dragstart", () => {
+      marker.closePopup();
+    });
+    marker.on("dragend", async () => {
+      const previousLatitude = point.latitude;
+      const previousLongitude = point.longitude;
+      const position = marker.getLatLng();
+      point.latitude = position.lat;
+      point.longitude = position.lng;
+      layerEditorStatus.textContent = "Recalculando a rota após mover o ponto manual...";
+      try {
+        await routeOfficialGeometryThroughBoardingPoints();
+        saveOfficialLayerButton.disabled = false;
+        layerEditorStatus.textContent =
+          "Ponto movido e rota recalculada. Oficialize a camada para salvar.";
+        renderOfficialLayerEditor();
+      } catch (error) {
+        point.latitude = previousLatitude;
+        point.longitude = previousLongitude;
+        marker.setLatLng([previousLatitude, previousLongitude]);
+        layerEditorStatus.textContent = `Erro ao mover o ponto: ${error.message}`;
+      }
+    });
   });
 }
 
@@ -2299,7 +2325,7 @@ async function saveOfficialLayer() {
     return;
   }
   setMessage(
-    `Camada oficial salva e posicionamentos automáticos atualizados a cada 100 metros. Pontos manuais preservados.${returnedToValidatedStatus ? " Status alterado para Trajeto validado." : ""}`,
+    `Camada oficial salva e posicionamentos automáticos atualizados a cada 100 metros. Pontos manuais preservados.${returnedToValidatedStatus ? " Status alterado para Pendente de importação." : ""}`,
     "success"
   );
   closeOfficialLayerEditor();
@@ -4179,7 +4205,7 @@ async function changeRouteStatus(route) {
     setMessage(
       nextStatus === "importado"
         ? "Importação concluída. O arquivo foi encaminhado para a etapa final do processo."
-        : "Trajeto validado com sucesso.",
+        : "Status alterado para Pendente de importação com sucesso.",
       "success"
     );
     await refreshDashboard();

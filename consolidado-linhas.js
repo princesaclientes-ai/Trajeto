@@ -926,17 +926,24 @@ function renderEditor() {
   editorPoints.filter((point) => ["primeiro", "manual"].includes(point.tipo_ponto)).forEach((point) => {
     const isNewStudyPoint = String(point.id).startsWith("study-");
     const marker = L.marker([point.latitude, point.longitude], {
-      draggable: point.tipo_ponto === "manual",
+      draggable: true,
       icon: markerIcon(`route-stop${isNewStudyPoint ? " new-point" : ""}`),
     }).addTo(editorLayer);
     marker.bindPopup(pointPopup(point, point.tipo_ponto === "manual"));
-    if (point.tipo_ponto === "manual") {
-      marker.on("dragend", async () => {
-        const position = marker.getLatLng();
-        point.latitude = position.lat; point.longitude = position.lng;
+    marker.on("dragend", async () => {
+      const previousLatitude = point.latitude;
+      const previousLongitude = point.longitude;
+      const position = marker.getLatLng();
+      point.latitude = position.lat; point.longitude = position.lng;
+      try {
         await recalculateEditor();
-      });
-    }
+      } catch (error) {
+        point.latitude = previousLatitude;
+        point.longitude = previousLongitude;
+        marker.setLatLng([previousLatitude, previousLongitude]);
+        editorStatus.textContent = `Erro ao mover o ponto manual: ${error.message}`;
+      }
+    });
   });
   removedStudyPoints.forEach((point) => {
     L.marker([point.latitude, point.longitude], {
