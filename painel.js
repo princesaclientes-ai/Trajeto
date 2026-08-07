@@ -1423,7 +1423,9 @@ function ensureRouteMap() {
 
 function getMarkerIcon(point, isDuplicate = false) {
   const typeClass = isDuplicate ? "duplicado" : point.tipo_ponto || "trajeto";
-  const markerContent = isManualPoint(point) ? "P" : "";
+  const markerContent = point.tipo_ponto === "trajeto"
+    ? escapeHtml(point.ordem_ponto)
+    : isManualPoint(point) ? "P" : "";
 
   return L.divIcon({
     className: "",
