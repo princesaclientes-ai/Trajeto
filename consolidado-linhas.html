@@ -124,16 +124,8 @@
             </div>
             <h3>Pontos do estudo</h3>
             <div class="study-points" id="studyPointList"></div>
-            <div class="officialization-fields">
-              <label>
-                <span>Operador responsável *</span>
-                <input id="versionOperator" type="text" autocomplete="off" />
-              </label>
-              <label>
-                <span>Motivo/justificativa *</span>
-                <textarea id="versionReason" rows="3"></textarea>
-              </label>
-            </div>
+            <input id="versionOperator" type="hidden" />
+            <textarea id="versionReason" hidden></textarea>
             <h3>Histórico de versões</h3>
             <div class="version-history" id="versionHistory">
               <p class="empty">Carregando versões...</p>
@@ -142,6 +134,44 @@
           <div class="map editor-map" id="editorMap"></div>
         </div>
       </div>
+    </section>
+
+    <section class="save-confirmation-modal hidden" id="saveConfirmationModal" role="dialog" aria-modal="true" aria-labelledby="saveConfirmationTitle">
+      <div class="save-confirmation-backdrop" id="saveConfirmationBackdrop"></div>
+      <form class="save-confirmation-dialog" id="saveConfirmationForm">
+        <header>
+          <div>
+            <p class="eyebrow">Oficialização da alteração</p>
+            <h2 id="saveConfirmationTitle">Confirmar responsável</h2>
+          </div>
+          <button class="button secondary" id="cancelSaveConfirmationButton" type="button">Cancelar</button>
+        </header>
+        <div class="save-confirmation-body">
+          <p id="saveConfirmationDescription"></p>
+          <label>
+            <span>Operador responsável *</span>
+            <select id="saveOperatorSelect" required></select>
+          </label>
+          <label>
+            <span>Motivo/justificativa *</span>
+            <select id="saveReasonInput" required>
+              <option value="">Selecione o motivo</option>
+              <option value="Ajuste da rota">Ajuste da rota</option>
+              <option value="Inclusão de ponto">Inclusão de ponto</option>
+            </select>
+          </label>
+          <p class="save-operator-help">Se o operador não estiver na lista, pressione <strong>F9</strong>.</p>
+          <div class="new-save-operator hidden" id="newSaveOperatorFields">
+            <label>
+              <span>Nome do novo operador</span>
+              <input id="newSaveOperatorName" type="text" autocomplete="off" />
+            </label>
+            <button class="button secondary" id="addSaveOperatorButton" type="button">Adicionar operador</button>
+          </div>
+          <p class="save-confirmation-status" id="saveConfirmationStatus"></p>
+          <button class="button primary" id="confirmSaveButton" type="submit">Confirmar e salvar</button>
+        </div>
+      </form>
     </section>
   </body>
 </html>

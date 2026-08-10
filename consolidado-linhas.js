@@ -36,6 +36,18 @@ const versionOperator = document.querySelector("#versionOperator");
 const versionReason = document.querySelector("#versionReason");
 const versionHistory = document.querySelector("#versionHistory");
 const accessRouteInfo = document.querySelector("#accessRouteInfo");
+const saveConfirmationModal = document.querySelector("#saveConfirmationModal");
+const saveConfirmationBackdrop = document.querySelector("#saveConfirmationBackdrop");
+const saveConfirmationForm = document.querySelector("#saveConfirmationForm");
+const saveConfirmationDescription = document.querySelector("#saveConfirmationDescription");
+const saveOperatorSelect = document.querySelector("#saveOperatorSelect");
+const saveReasonInput = document.querySelector("#saveReasonInput");
+const newSaveOperatorFields = document.querySelector("#newSaveOperatorFields");
+const newSaveOperatorName = document.querySelector("#newSaveOperatorName");
+const addSaveOperatorButton = document.querySelector("#addSaveOperatorButton");
+const cancelSaveConfirmationButton = document.querySelector("#cancelSaveConfirmationButton");
+const confirmSaveButton = document.querySelector("#confirmSaveButton");
+const saveConfirmationStatus = document.querySelector("#saveConfirmationStatus");
 
 let routes = [];
 let clientRoutes = [];
@@ -68,6 +80,111 @@ let overviewAccessSelection = null;
 const overviewEditingEnabled = true;
 let overviewLoadGeneration = 0;
 let overviewNeedsFit = true;
+let planningOperators = [];
+let pendingSaveAction = "officialize";
+let pendingRestoreVersionId = null;
+const STUDY_ROUTE_PARAMETER = "estudo";
+const standaloneStudyRouteId = new URLSearchParams(window.location.search)
+  .get(STUDY_ROUTE_PARAMETER);
+if (standaloneStudyRouteId) document.body.classList.add("standalone-study");
+
+function openEditorInNewTab(routeId) {
+  const studyUrl = new URL(window.location.href);
+  studyUrl.searchParams.set(STUDY_ROUTE_PARAMETER, routeId);
+  window.open(studyUrl.toString(), "_blank", "noopener");
+}
+
+async function loadPlanningOperators(selectedId = "") {
+  const { data, error } = await db.from("operadores_planejamento")
+    .select("id, nome")
+    .eq("ativo", true)
+    .order("nome");
+  if (error) throw error;
+  planningOperators = data || [];
+  saveOperatorSelect.innerHTML = '<option value="">Selecione o operador</option>';
+  planningOperators.forEach((operator) => {
+    const option = document.createElement("option");
+    option.value = operator.id;
+    option.textContent = operator.nome;
+    option.selected = String(operator.id) === String(selectedId);
+    saveOperatorSelect.appendChild(option);
+  });
+}
+
+async function openSaveConfirmation(action = "officialize", restoreVersionId = null) {
+  if (!editorRoute || (action === "officialize" && (!editorDirty || editorGeometry.length < 2))) return;
+  pendingSaveAction = action;
+  pendingRestoreVersionId = restoreVersionId;
+  saveReasonInput.value = "";
+  newSaveOperatorName.value = "";
+  newSaveOperatorFields.classList.add("hidden");
+  saveConfirmationStatus.textContent = "Carregando operadores...";
+  saveConfirmationDescription.textContent = action === "restore"
+    ? `Restaurar uma versão da linha ${editorRoute.nome_linha} como nova versão oficial.`
+    : `Salvar as alterações da linha ${editorRoute.nome_linha} como nova versão oficial.`;
+  saveConfirmationModal.classList.remove("hidden");
+  try {
+    await loadPlanningOperators();
+    saveConfirmationStatus.textContent = planningOperators.length
+      ? "Selecione o responsável e informe a justificativa."
+      : "Nenhum operador cadastrado. Pressione F9 para cadastrar.";
+    setTimeout(() => saveOperatorSelect.focus(), 0);
+  } catch (error) {
+    saveConfirmationStatus.textContent = `Erro ao carregar operadores: ${error.message}`;
+  }
+}
+
+function closeSaveConfirmation() {
+  saveConfirmationModal.classList.add("hidden");
+  newSaveOperatorFields.classList.add("hidden");
+  pendingRestoreVersionId = null;
+  confirmSaveButton.disabled = false;
+}
+
+async function addPlanningOperatorFromStudy() {
+  const nome = newSaveOperatorName.value.trim();
+  if (!nome) {
+    newSaveOperatorName.focus();
+    return;
+  }
+  addSaveOperatorButton.disabled = true;
+  saveConfirmationStatus.textContent = "Cadastrando operador...";
+  try {
+    const { data, error } = await db.from("operadores_planejamento")
+      .upsert({ nome, ativo: true }, { onConflict: "nome" })
+      .select("id, nome")
+      .single();
+    if (error) throw error;
+    await loadPlanningOperators(data.id);
+    newSaveOperatorFields.classList.add("hidden");
+    saveConfirmationStatus.textContent = "Operador adicionado e selecionado.";
+    saveReasonInput.focus();
+  } catch (error) {
+    saveConfirmationStatus.textContent = `Erro ao cadastrar operador: ${error.message}`;
+  } finally {
+    addSaveOperatorButton.disabled = false;
+  }
+}
+
+async function recordChangeInPanelHistory(action, versionNumber = null) {
+  const operatorId = versionOperator.dataset.operatorId;
+  const operator = planningOperators.find((item) => String(item.id) === String(operatorId));
+  if (!editorRoute || !operator) throw new Error("operador responsável não identificado");
+  const actionLabel = action === "restore" ? "Restauração de versão" : "Alteração oficializada";
+  const versionText = versionNumber && versionNumber !== "-" ? ` Versão ${versionNumber}.` : "";
+  const { error } = await db.from("demanda_historico").insert({
+    trajeto_id: editorRoute.id,
+    cliente: editorRoute.cliente,
+    sentido: editorRoute.sentido || "",
+    nome_linha: editorRoute.nome_linha || "",
+    status: "trajeto",
+    operador_id: operator.id,
+    operador_nome: operator.nome,
+    apelido_condutor: null,
+    detalhes: `${actionLabel}: ${versionReason.value.trim()}.${versionText}`,
+  });
+  if (error) throw error;
+}
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
@@ -172,12 +289,12 @@ function pointCoordinatesText(point) {
   return `${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}`;
 }
 
-function passengerMessage(point, boardingTime) {
+function passengerMessage(point, boardingTime, route = editorRoute) {
   const coordinates = pointCoordinatesText(point);
   const mapLink = `https://www.google.com/maps?q=${Number(point.latitude).toFixed(6)},${Number(point.longitude).toFixed(6)}`;
   return `Prezado condutor,
 
-Foi incluído um novo passageiro na sua linha ${editorRoute?.nome_linha || "-"}.
+Foi incluído um novo passageiro na sua linha ${route?.nome_linha || "-"}.
 Ele iniciará no dia ${nextBusinessDayText()}.
 O horário de embarque do passageiro é às ${boardingTime || "-"}.
 
@@ -186,6 +303,42 @@ ${mapLink}
 
 Latitude e longitude:
 ${coordinates}`;
+}
+
+function overviewPointPopup(route, point) {
+  const container = document.createElement("div");
+  const details = document.createElement("p");
+  const boardingTime = formatPointDateTime(point.data_hora_registro);
+  details.innerHTML =
+    `<strong>${escapeHtml(route.nome_linha || "-")} · Ponto ${escapeHtml(point.ordem_ponto || "-")}</strong><br>` +
+    `Latitude: ${Number(point.latitude).toFixed(6)}<br>` +
+    `Longitude: ${Number(point.longitude).toFixed(6)}<br>` +
+    `Horário: ${escapeHtml(boardingTime)}`;
+  container.appendChild(details);
+
+  const copyActions = document.createElement("div");
+  copyActions.className = "point-copy-actions overview-point-copy-actions";
+  const copyCoordinatesButton = document.createElement("button");
+  copyCoordinatesButton.type = "button";
+  copyCoordinatesButton.textContent = "Copiar Lat";
+  copyCoordinatesButton.addEventListener("click", async () => {
+    await copyText(pointCoordinatesText(point));
+    copyCoordinatesButton.textContent = "Copiado";
+    pageStatus.textContent = "Latitude e longitude copiadas.";
+    setTimeout(() => { copyCoordinatesButton.textContent = "Copiar Lat"; }, 1400);
+  });
+  const copyMessageButton = document.createElement("button");
+  copyMessageButton.type = "button";
+  copyMessageButton.textContent = "Copiar mensagem";
+  copyMessageButton.addEventListener("click", async () => {
+    await copyText(passengerMessage(point, boardingTime, route));
+    copyMessageButton.textContent = "Mensagem copiada";
+    pageStatus.textContent = "Mensagem do passageiro copiada.";
+    setTimeout(() => { copyMessageButton.textContent = "Copiar mensagem"; }, 1400);
+  });
+  copyActions.append(copyCoordinatesButton, copyMessageButton);
+  container.appendChild(copyActions);
+  return container;
 }
 
 function buildGeocodingUrl(query, restrictToRmc) {
@@ -447,7 +600,7 @@ function renderLineList() {
     input.addEventListener("change", refreshOverviewAccess)
   );
   lineList.querySelectorAll("[data-edit]").forEach((button) =>
-    button.addEventListener("click", () => openEditor(button.dataset.edit))
+    button.addEventListener("click", () => openEditorInNewTab(button.dataset.edit))
   );
 }
 
@@ -489,7 +642,7 @@ function drawOverview() {
       if (overviewEditingEnabled) {
         routeLine.on("click", (event) => {
           if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
-          openEditor(route.id);
+          openEditorInNewTab(route.id);
         });
       }
       bounds.push(...line);
@@ -506,7 +659,9 @@ function drawOverview() {
         `Latitude: ${Number(point.latitude).toFixed(6)}<br>` +
         `Longitude: ${Number(point.longitude).toFixed(6)}<br>` +
         `Horário: ${formatPointDateTime(point.data_hora_registro)}`
-      ).addTo(overviewLayer);
+      );
+      overviewPointMarker.bindPopup(overviewPointPopup(route, point));
+      overviewPointMarker.addTo(overviewLayer);
       bounds.push([point.latitude, point.longitude]);
     });
   });
@@ -836,12 +991,14 @@ async function recalculateEditor() {
   renderEditor();
 }
 
-function markerIcon(className) {
+function markerIcon(className, label = null) {
   const isNode = className.includes("route-node");
   const size = isNode ? 16 : 28;
   return L.divIcon({
     className: "",
-    html: `<span class="${className}">${isNode ? "" : "P"}</span>`,
+    html: isNode
+      ? '<span class="point-marker no" aria-label="Nó de controle"></span>'
+      : `<span class="${className}">${escapeHtml(label ?? "P")}</span>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
@@ -856,7 +1013,7 @@ function deletePopup(onDelete, label) {
   return button;
 }
 
-function pointPopup(point, allowDelete) {
+function pointPopup(point, allowDelete, displayNumber = point.ordem_ponto) {
   const container = document.createElement("div");
   const details = document.createElement("p");
   const scheduled = editorRoute
@@ -864,7 +1021,7 @@ function pointPopup(point, allowDelete) {
       .find((item) => String(item.id) === String(point.id))
     : null;
   details.innerHTML =
-    `<strong>Ponto ${escapeHtml(point.ordem_ponto || "-")}</strong><br>` +
+    `<strong>Ponto ${escapeHtml(displayNumber || "-")}</strong><br>` +
     `Latitude: ${Number(point.latitude).toFixed(6)}<br>` +
     `Longitude: ${Number(point.longitude).toFixed(6)}<br>` +
     `Horário calculado: ${escapeHtml(scheduled?.calculatedTime || formatPointDateTime(point.data_hora_registro))}`;
@@ -923,13 +1080,15 @@ function renderEditor() {
       `Acesso a pé até o ponto mais próximo: ${(accessRouteDistanceMeters / 1000).toFixed(2)} km`
     ).addTo(editorLayer);
   }
-  editorPoints.filter((point) => ["primeiro", "manual"].includes(point.tipo_ponto)).forEach((point) => {
+  orderedPoints(editorPoints)
+    .filter((point) => ["primeiro", "manual"].includes(point.tipo_ponto))
+    .forEach((point, stopIndex) => {
     const isNewStudyPoint = String(point.id).startsWith("study-");
     const marker = L.marker([point.latitude, point.longitude], {
       draggable: true,
-      icon: markerIcon(`route-stop${isNewStudyPoint ? " new-point" : ""}`),
+      icon: markerIcon(`route-stop${isNewStudyPoint ? " new-point" : ""}`, stopIndex + 1),
     }).addTo(editorLayer);
-    marker.bindPopup(pointPopup(point, point.tipo_ponto === "manual"));
+    marker.bindPopup(pointPopup(point, point.tipo_ponto === "manual", stopIndex + 1));
     marker.on("dragend", async () => {
       const previousLatitude = point.latitude;
       const previousLongitude = point.longitude;
@@ -944,7 +1103,7 @@ function renderEditor() {
         editorStatus.textContent = `Erro ao mover o ponto manual: ${error.message}`;
       }
     });
-  });
+    });
   removedStudyPoints.forEach((point) => {
     L.marker([point.latitude, point.longitude], {
       icon: markerIcon("route-stop removed-point"),
@@ -952,24 +1111,37 @@ function renderEditor() {
   });
   editorNodes.forEach((node) => {
     const marker = L.marker([node.lat, node.lng], { draggable: true, icon: markerIcon("route-node") }).addTo(editorLayer);
+    marker.bindTooltip("Nó de controle · arraste para ajustar o trecho", {
+      direction: "top",
+      offset: [0, -8],
+    });
     marker.bindPopup(deletePopup(async () => {
+      marker.closePopup();
       editorStatus.textContent = "Removendo o nó e recalculando somente o trecho...";
       try {
         await removeEditorNode(node);
-        editorStatus.textContent = "Nó removido. Oficialize para salvar.";
+        editorStatus.textContent =
+          "Nó removido. O trecho foi recalculado sem essa trava; oficialize para salvar.";
         renderEditor();
       } catch (error) {
         editorStatus.textContent = `Erro ao remover o nó: ${error.message}`;
       }
     }, "Excluir nó"));
+    marker.on("dragstart", () => {
+      marker.closePopup();
+      editorStatus.textContent = "Mova o nó até a rua desejada.";
+    });
     marker.on("dragend", async () => {
+      const previousPosition = { lat: node.lat, lng: node.lng };
       const position = marker.getLatLng();
       editorStatus.textContent = "Recalculando somente o trecho entre as travas...";
       try {
         await reshapeAt(position, node.index, node);
-        editorStatus.textContent = "Prévia atualizada. Oficialize para salvar.";
+        editorStatus.textContent =
+          "Prévia atualizada. Clique em Salvar alteração para oficializar.";
         renderEditor();
       } catch (error) {
+        marker.setLatLng(previousPosition);
         editorStatus.textContent = `Erro ao mover o nó: ${error.message}`;
       }
     });
@@ -1162,6 +1334,30 @@ function closeEditor(force = false) {
     editorMap.removeLayer(searchMarker);
   }
   searchMarker = null;
+  if (standaloneStudyRouteId) {
+    window.close();
+    if (!window.closed) {
+      const overviewUrl = new URL(window.location.href);
+      overviewUrl.searchParams.delete(STUDY_ROUTE_PARAMETER);
+      window.location.replace(overviewUrl.toString());
+    }
+  }
+}
+
+async function openStandaloneStudy(routeId) {
+  const route = routes.find((item) => String(item.id) === String(routeId));
+  if (!route) {
+    pageStatus.textContent = "A linha solicitada não foi encontrada.";
+    return;
+  }
+  document.title = `${route.nome_linha || "Linha"} · Edição independente`;
+  closeEditorButton.textContent = "Fechar guia";
+  routeEditor.setAttribute("role", "main");
+  routeEditor.removeAttribute("aria-modal");
+  clientRoutes = [route];
+  const points = await fetchAllPoints([route.id]);
+  pointsByRoute = new Map([[String(route.id), points]]);
+  await openEditor(route.id);
 }
 
 async function addManualPoint(position) {
@@ -1431,7 +1627,7 @@ function renderStudyComparison() {
       const scheduled = scheduleById.get(String(point.id));
       const isNew = String(point.id).startsWith("study-");
       return `<article class="study-point-row ${isNew ? "new" : ""}">
-        <div><strong>${isNew ? "Novo ponto" : `Ponto ${point.ordem_ponto}`}</strong><br>
+        <div><strong>${isNew ? `Novo ponto ${index + 1}` : `Ponto ${index + 1}`}</strong><br>
         Latitude: ${Number(point.latitude).toFixed(6)}<br>
         Longitude: ${Number(point.longitude).toFixed(6)}<br>
         Horário: <strong>${escapeHtml(scheduled?.calculatedTime || "-")}</strong>
@@ -1498,19 +1694,13 @@ async function loadVersionHistory() {
       </article>`).join("")
     : '<p class="empty">A primeira versão será criada na oficialização deste estudo.</p>';
   versionHistory.querySelectorAll("[data-restore-version]").forEach((button) => {
-    button.addEventListener("click", () => restoreVersion(button.dataset.restoreVersion));
+    button.addEventListener("click", () =>
+      openSaveConfirmation("restore", button.dataset.restoreVersion)
+    );
   });
 }
 
 async function restoreVersion(versionId) {
-  if (!versionOperator.value.trim() || !versionReason.value.trim()) {
-    editorStatus.textContent =
-      "Informe o operador e a justificativa antes de restaurar uma versão.";
-    return;
-  }
-  if (!window.confirm("Restaurar esta versão como uma nova versão oficial? A versão atual continuará no histórico.")) {
-    return;
-  }
   editorStatus.textContent = "Restaurando a versão selecionada...";
   const { data, error } = await db.rpc("restore_route_version", {
     p_version_id: versionId,
@@ -1519,13 +1709,19 @@ async function restoreVersion(versionId) {
   });
   if (error) {
     editorStatus.textContent = `Erro ao restaurar: ${error.message}`;
-    return;
+    return false;
   }
   const versionNumber = data?.[0]?.version_number || "-";
+  try {
+    await recordChangeInPanelHistory("restore", versionNumber);
+  } catch (historyError) {
+    window.alert(`A versão foi restaurada, mas não foi possível registrar no histórico do painel: ${historyError.message}`);
+  }
   editorStatus.textContent = `Restauração concluída como versão ${versionNumber}.`;
   await selectClient();
   await loadVersionHistory();
   setTimeout(() => closeEditor(true), 700);
+  return true;
 }
 
 async function moveStudyPoint(pointId, direction) {
@@ -1533,13 +1729,41 @@ async function moveStudyPoint(pointId, direction) {
   const index = stops.findIndex((point) => String(point.id) === String(pointId));
   const target = index + direction;
   if (index < 0 || target < 0 || target >= stops.length) return;
-  const firstOrder = stops[index].ordem_ponto;
-  stops[index].ordem_ponto = stops[target].ordem_ponto;
-  stops[target].ordem_ponto = firstOrder;
+  const previousOrders = new Map(editorPoints.map((point) => [String(point.id), point.ordem_ponto]));
+  const previousGeometry = editorGeometry.map((coordinate) => [...coordinate]);
+  const previousNodes = editorNodes.map((node) => ({ ...node }));
+  const orderSlots = stops.map((point) => point.ordem_ponto);
+  const [movedPoint] = stops.splice(index, 1);
+  stops.splice(target, 0, movedPoint);
+  stops.forEach((point, stopIndex) => {
+    point.ordem_ponto = orderSlots[stopIndex];
+  });
   editorPoints = orderedPoints(editorPoints);
-  editorDirty = true;
-  officializeButton.disabled = false;
-  renderStudyComparison();
+  editorStatus.textContent = "Recalculando a rota conforme a nova ordem dos pontos...";
+  try {
+    const controls = stops.map((point) => ({
+      lat: Number(point.latitude),
+      lng: Number(point.longitude),
+    }));
+    editorGeometry = await routeThrough(controls);
+    editorRoutingDurationSeconds = Number(editorGeometry.routingDurationSeconds) || 0;
+    editorRoutingSegmentDurations = editorGeometry.routingSegmentDurations || [];
+    editorNodes = [];
+    editorDirty = true;
+    officializeButton.disabled = false;
+    renderEditor();
+    editorStatus.textContent =
+      "Ordem atualizada no mapa. Oficialize para salvar a nova sequência dos pontos.";
+  } catch (error) {
+    editorPoints.forEach((point) => {
+      point.ordem_ponto = previousOrders.get(String(point.id));
+    });
+    editorPoints = orderedPoints(editorPoints);
+    editorGeometry = previousGeometry;
+    editorNodes = previousNodes;
+    renderEditor();
+    editorStatus.textContent = `Não foi possível recalcular a nova ordem: ${error.message}`;
+  }
 }
 
 function sampleGeometry(geometry, spacing = 100) {
@@ -1598,24 +1822,6 @@ function replacementPayload() {
 
 async function officialize() {
   if (!editorRoute || !editorDirty || editorGeometry.length < 2) return;
-  if (!versionOperator.value.trim()) {
-    editorStatus.textContent = "Informe o operador responsável pela oficialização.";
-    versionOperator.focus();
-    return;
-  }
-  if (!versionReason.value.trim()) {
-    editorStatus.textContent = "Informe o motivo ou a justificativa da alteração.";
-    versionReason.focus();
-    return;
-  }
-  const confirmed = window.confirm(
-    "Ao salvar, esta rota em estudo passará a ser a versão oficial da linha. " +
-    "A versão oficial anterior será preservada no histórico. Deseja continuar?"
-  );
-  if (!confirmed) {
-    editorStatus.textContent = "Alteração não salva. A versão oficial permanece sem mudanças.";
-    return;
-  }
   officializeButton.disabled = true;
   editorStatus.textContent = "Salvando a alteração como nova versão oficial...";
   const nodes = editorNodes.map((node) => ({ id: node.id, lat: node.lat, lng: node.lng, index: closestGeometryIndex(node) }));
@@ -1642,17 +1848,23 @@ async function officialize() {
       ? "Execute o arquivo supabase-simulador-versionamento.sql no Supabase antes de oficializar."
       : `Erro ao oficializar a nova versão: ${error.message}`;
     officializeButton.disabled = false;
-    return;
+    return false;
   }
   editorRoute.geometria_validada = editorGeometry;
   editorRoute.nos_validacao = nodes;
   if (editorRoute.status === "importado") editorRoute.status = "trajeto";
   const versionNumber = data?.[0]?.version_number || data?.version_number || "-";
+  try {
+    await recordChangeInPanelHistory("officialize", versionNumber);
+  } catch (historyError) {
+    window.alert(`A alteração foi salva, mas não foi possível registrar no histórico do painel: ${historyError.message}`);
+  }
   editorStatus.textContent =
     `Alteração salva como versão oficial ${versionNumber}. A versão anterior foi preservada no histórico.`;
   editorDirty = false;
   await selectClient();
   setTimeout(() => closeEditor(true), 500);
+  return true;
 }
 
 async function searchLocation() {
@@ -1701,7 +1913,37 @@ hideAllButton.addEventListener("click", () => {
 });
 closeEditorButton.addEventListener("click", () => closeEditor());
 routeEditor.querySelector(".editor-backdrop").addEventListener("click", () => closeEditor());
-officializeButton.addEventListener("click", officialize);
+officializeButton.addEventListener("click", () => openSaveConfirmation("officialize"));
+cancelSaveConfirmationButton.addEventListener("click", closeSaveConfirmation);
+saveConfirmationBackdrop.addEventListener("click", closeSaveConfirmation);
+addSaveOperatorButton.addEventListener("click", addPlanningOperatorFromStudy);
+saveConfirmationForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const operator = planningOperators.find((item) => String(item.id) === saveOperatorSelect.value);
+  const reason = saveReasonInput.value.trim();
+  if (!operator) {
+    saveConfirmationStatus.textContent = "Selecione o operador responsável.";
+    saveOperatorSelect.focus();
+    return;
+  }
+  if (!reason) {
+    saveConfirmationStatus.textContent = "Informe o motivo ou a justificativa.";
+    saveReasonInput.focus();
+    return;
+  }
+  versionOperator.value = operator.nome;
+  versionOperator.dataset.operatorId = operator.id;
+  versionReason.value = reason;
+  confirmSaveButton.disabled = true;
+  saveConfirmationStatus.textContent = pendingSaveAction === "restore"
+    ? "Restaurando versão..."
+    : "Salvando alteração...";
+  const completed = pendingSaveAction === "restore"
+    ? await restoreVersion(pendingRestoreVersionId)
+    : await officialize();
+  if (completed) closeSaveConfirmation();
+  else confirmSaveButton.disabled = false;
+});
 clearNodesButton.addEventListener("click", async () => {
   editorNodes = [];
   try { await recalculateEditor(); } catch (error) { editorStatus.textContent = `Erro: ${error.message}`; }
@@ -1719,8 +1961,27 @@ averageSpeed.addEventListener("change", () => {
 });
 referenceTime.addEventListener("change", updateReferenceTime);
 document.addEventListener("keydown", (event) => {
+  if (event.key === "F9" && !saveConfirmationModal.classList.contains("hidden")) {
+    event.preventDefault();
+    newSaveOperatorFields.classList.remove("hidden");
+    setTimeout(() => newSaveOperatorName.focus(), 0);
+    return;
+  }
+  if (event.key === "Escape" && !saveConfirmationModal.classList.contains("hidden")) {
+    closeSaveConfirmation();
+    return;
+  }
   if (event.key === "Escape" && !routeEditor.classList.contains("hidden")) closeEditor();
 });
 
-ensureMaps();
-loadRoutes().catch((error) => { pageStatus.textContent = `Erro ao carregar: ${error.message}`; });
+async function initializePage() {
+  ensureMaps();
+  await loadRoutes();
+  if (standaloneStudyRouteId) {
+    await openStandaloneStudy(standaloneStudyRouteId);
+  }
+}
+
+initializePage().catch((error) => {
+  pageStatus.textContent = `Erro ao carregar: ${error.message}`;
+});
