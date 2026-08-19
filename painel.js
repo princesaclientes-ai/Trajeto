@@ -634,14 +634,48 @@ function getExportName(route) {
 }
 
 function getRouteTrackPoints(points) {
-  // O trajeto exportado representa a sequencia completa capturada. Pontos
-  // manuais continuam aparecendo separadamente em "Pontos", mas tambem fazem
-  // parte da linha/aba "Trajeto" na ordem em que foram registrados.
-  return points;
+  // Prioriza o ponto manual quando existir um posicionamento automático no
+  // mesmo local, evitando duplicidade nas exportações.
+  return deduplicateRoutePoints(points);
 }
 
 function getRouteStopPoints(points) {
-  return points.filter(isManualPoint);
+  return deduplicateRoutePoints(points.filter(isManualPoint));
+}
+
+function arePointsAtSameLocation(first, second, toleranceMeters = 2) {
+  if (!first || !second) return false;
+  const firstCoordinate = [Number(first.latitude), Number(first.longitude)];
+  const secondCoordinate = [Number(second.latitude), Number(second.longitude)];
+  if (![...firstCoordinate, ...secondCoordinate].every(Number.isFinite)) return false;
+  return distanceMetersBetweenCoordinates(firstCoordinate, secondCoordinate) <= toleranceMeters;
+}
+
+function deduplicateRoutePoints(points, toleranceMeters = 2) {
+  const ordered = [...points].sort(
+    (first, second) => Number(first.ordem_ponto) - Number(second.ordem_ponto)
+  );
+  const unique = [];
+  const seenIds = new Set();
+
+  ordered.forEach((point) => {
+    const pointId = point.id == null ? "" : String(point.id);
+    if (pointId && seenIds.has(pointId)) return;
+    const duplicateIndex = unique.findIndex((savedPoint) =>
+      arePointsAtSameLocation(savedPoint, point, toleranceMeters)
+    );
+    if (duplicateIndex >= 0) {
+      const savedPoint = unique[duplicateIndex];
+      if (isManualPoint(point) && !isManualPoint(savedPoint)) {
+        unique[duplicateIndex] = point;
+      }
+      if (pointId) seenIds.add(pointId);
+      return;
+    }
+    unique.push(point);
+    if (pointId) seenIds.add(pointId);
+  });
+  return unique;
 }
 
 function getPointTime(point) {
@@ -659,7 +693,7 @@ function buildExportSummary(route, points) {
   const trackPoints = getRouteTrackPoints(points);
   const stopPoints = getRouteStopPoints(points);
   const conductor = getRouteConductorInfo(route);
-  const orderedExportPoints = [...points].sort(
+  const orderedExportPoints = [...trackPoints].sort(
     (first, second) => Number(first.ordem_ponto) - Number(second.ordem_ponto)
   );
   const firstPointTime = orderedExportPoints[0]?.data_hora_registro;
@@ -675,7 +709,7 @@ function buildExportSummary(route, points) {
     status: getStatusLabel(getRouteStatus(route)),
     horario_inicio: formatFileDate(firstPointTime || route.data_hora_inicio),
     horario_fim: formatFileDate(lastPointTime || route.data_hora_fim),
-    total_registros: points.length,
+    total_registros: trackPoints.length,
     total_trajeto: trackPoints.length,
     total_pontos: stopPoints.length,
   };
@@ -2241,7 +2275,15 @@ function sampleGeometryEveryMeters(geometry, spacingMeters = 100) {
 
 function buildOfficialTrackPointPayload(geometry) {
   const sampledCoordinates = sampleGeometryEveryMeters(geometry, 100);
-  const rows = sampledCoordinates.map(([latitude, longitude], index) => ({
+  const manualPoints = getRouteStopPoints(currentRoutePoints);
+  const rows = sampledCoordinates
+    .filter(([latitude, longitude]) => !manualPoints.some((point) =>
+      distanceMetersBetweenCoordinates(
+        [latitude, longitude],
+        [Number(point.latitude), Number(point.longitude)]
+      ) <= 2
+    ))
+    .map(([latitude, longitude], index) => ({
     latitude,
     longitude,
     tipo_ponto: "trajeto",
@@ -2251,7 +2293,7 @@ function buildOfficialTrackPointPayload(geometry) {
     priority: 1,
   }));
 
-  getRouteStopPoints(currentRoutePoints).forEach((point) => {
+  manualPoints.forEach((point) => {
     const closestIndex = findClosestIndexInGeometry(
       { lat: point.latitude, lng: point.longitude },
       sampledCoordinates

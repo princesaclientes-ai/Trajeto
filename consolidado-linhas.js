@@ -1790,23 +1790,43 @@ function sampleGeometry(geometry, spacing = 100) {
 
 function replacementPayload() {
   const sampled = sampleGeometry(editorGeometry, 100);
+  const manualPoints = orderedPoints(editorPoints)
+    .filter((point) => ["primeiro", "manual"].includes(point.tipo_ponto))
+    .filter((point, index, points) => points.findIndex((candidate) =>
+      String(candidate.id) === String(point.id) ||
+      distanceMeters(
+        [Number(candidate.latitude), Number(candidate.longitude)],
+        [Number(point.latitude), Number(point.longitude)]
+      ) <= 2
+    ) === index);
   const metrics = calculateMetrics(editorPoints, editorGeometry);
   const speedMetersPerSecond = metrics.speed * 1000 / 3600;
-  let accumulatedMeters = 0;
-  const rows = sampled.map(([latitude, longitude], index) => ({
+  const cumulativeSampleMeters = sampled.map((_, index) => index === 0
+    ? 0
+    : distanceMeters(sampled[index - 1], sampled[index]));
+  for (let index = 1; index < cumulativeSampleMeters.length; index += 1) {
+    cumulativeSampleMeters[index] += cumulativeSampleMeters[index - 1];
+  }
+  const rows = sampled
+    .map(([latitude, longitude], routePosition) => ({ latitude, longitude, routePosition }))
+    .filter(({ latitude, longitude }) => !manualPoints.some((point) =>
+      distanceMeters(
+        [latitude, longitude],
+        [Number(point.latitude), Number(point.longitude)]
+      ) <= 2
+    ))
+    .map(({ latitude, longitude, routePosition }) => ({
     latitude,
     longitude,
     tipo_ponto: "trajeto",
     data_hora_registro: new Date(
-      metrics.startDate.getTime() + (accumulatedMeters / speedMetersPerSecond) * 1000
+      metrics.startDate.getTime() +
+      ((cumulativeSampleMeters[routePosition] || 0) / speedMetersPerSecond) * 1000
     ).toISOString(),
-    precisao: null, routePosition: index, priority: 1,
-  })).map((row, index, array) => {
-    if (index < sampled.length - 1) accumulatedMeters += distanceMeters(sampled[index], sampled[index + 1]);
-    return row;
-  });
+    precisao: null, routePosition, priority: 1,
+  }));
   const scheduleById = new Map(metrics.schedule.map((point) => [String(point.id), point]));
-  editorPoints.filter((point) => ["primeiro", "manual"].includes(point.tipo_ponto)).forEach((point) => {
+  manualPoints.forEach((point) => {
     const index = closestGeometryIndex({ lat: point.latitude, lng: point.longitude }, sampled);
     const scheduled = scheduleById.get(String(point.id));
     rows.push({
