@@ -1,0 +1,124 @@
+html.auth-pending body { visibility: hidden; }
+.permission-hidden { display: none !important; }
+.app-menu-toggle {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  padding: 0;
+  border: 1px solid #ffffff45;
+  border-radius: 9px;
+  background: #ffffff12;
+  box-shadow: none;
+  color: #fff;
+  font: 700 14px/1 Arial, sans-serif;
+  cursor: pointer;
+  transition: background .2s ease, border-color .2s ease;
+}
+.app-menu-toggle > span:first-child { font-size: 19px; line-height: 1; }
+.app-menu-toggle:hover { border-color: #4fd6cc; background: #00a69c; }
+.app-menu-toggle.menu-open { opacity: 0; pointer-events: none; }
+.app-menu-backdrop {
+  position: fixed;
+  z-index: 100001;
+  inset: 0;
+  visibility: hidden;
+  background: #07112c80;
+  opacity: 0;
+  transition: opacity .2s ease, visibility .2s ease;
+}
+.app-menu-backdrop.open { visibility: visible; opacity: 1; }
+.app-side-menu {
+  position: fixed;
+  z-index: 100002;
+  inset: 0 auto 0 0;
+  display: flex;
+  width: min(320px, calc(100vw - 38px));
+  flex-direction: column;
+  transform: translateX(-105%);
+  background: #fff;
+  box-shadow: 10px 0 35px #07112c40;
+  color: #111a3d;
+  font-family: Arial, sans-serif;
+  transition: transform .22s ease;
+}
+.app-side-menu.open { transform: translateX(0); }
+.app-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 18px;
+  background: #101b42;
+  color: #fff;
+}
+.app-menu-brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.app-menu-brand img { width: 52px; height: 38px; object-fit: contain; padding: 4px; border-radius: 7px; background: #fff; }
+.app-menu-brand div, .app-menu-user > span:last-child, .app-menu-link > span:last-child { display: grid; gap: 3px; min-width: 0; }
+.app-menu-brand small { color: #42dfd4; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.app-menu-brand strong { font-size: 18px; }
+.app-menu-close {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #ffffff42;
+  border-radius: 8px;
+  background: transparent;
+  color: #fff;
+  font: 400 27px/1 Arial, sans-serif;
+  cursor: pointer;
+}
+.app-menu-nav { display: grid; gap: 7px; overflow-y: auto; padding: 18px 14px; }
+.app-menu-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: #16204b;
+  text-decoration: none;
+}
+.app-menu-link:hover { border-color: #ccd5ec; background: #f2f5fb; }
+.app-menu-link.active { border-color: #bdc9ed; background: #e9eefc; color: #203991; }
+.app-menu-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  border-radius: 10px;
+  background: #233b96;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 900;
+}
+.app-menu-link strong { font-size: 15px; }
+.app-menu-link small { color: #64708c; font-size: 12px; }
+.app-menu-section-label { margin: 10px 4px 1px; color: #77829b; font-size: 10px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.app-menu-public-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: 6px; }
+.app-menu-public-row .app-menu-link { min-width: 0; }
+.app-menu-public-row .app-menu-icon { font-size: 12px; }
+.app-menu-copy-link {
+  align-self: center;
+  min-width: 72px;
+  padding: 8px 7px;
+  border: 1px solid #c8d2e8;
+  border-radius: 8px;
+  background: #fff;
+  color: #233b96;
+  font: 800 10px/1.15 Arial, sans-serif;
+  cursor: pointer;
+}
+.app-menu-copy-link:hover { border-color: #00a69c; background: #e9fbf9; color: #087a73; }
+.app-menu-footer { display: grid; gap: 13px; margin-top: auto; padding: 16px; border-top: 1px solid #dce2ef; background: #f7f9fd; }
+.app-menu-user { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.app-menu-avatar { display: grid; width: 38px; height: 38px; flex: 0 0 38px; place-items: center; border-radius: 50%; background: #00a9a1; color: #fff; font-weight: 900; }
+.app-menu-user strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.app-menu-user small { color: #68738e; font-size: 12px; }
+.app-menu-logout { padding: 10px 12px; border: 1px solid #c9d2e6; border-radius: 9px; background: #fff; color: #24378f; font: 700 13px/1 Arial, sans-serif; cursor: pointer; }
+@media (max-width: 700px) { .app-menu-toggle { width: 36px; height: 36px; flex-basis: 36px; } }

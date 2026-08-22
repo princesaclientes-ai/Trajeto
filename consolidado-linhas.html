@@ -1,16 +1,22 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" class="auth-pending">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Consolidado de linhas</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="consolidado-linhas.css" />
+    <link rel="stylesheet" href="consolidado-linhas.css?v=20260821-8" />
+    <link rel="stylesheet" href="access-control.css?v=20260821-3" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="access-control.js?v=20260821-7"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script defer src="consolidado-linhas.js"></script>
+    <script defer src="consolidado-linhas.js?v=20260821-11"></script>
   </head>
   <body>
+    <div class="page-status-toast hidden" id="pageStatusToast" role="status" aria-live="polite">
+      <span id="pageStatusToastText"></span>
+      <button id="closePageStatusToast" type="button" aria-label="Fechar aviso">×</button>
+    </div>
     <main class="page-shell">
       <header class="topbar">
         <div class="brand-heading">
@@ -89,9 +95,11 @@
               <input id="editorRmcOnly" type="checkbox" checked />
               <span>Somente região de Campinas</span>
             </label>
-            <button class="button secondary" id="clearNodesButton" type="button">Limpar nós</button>
-            <button class="button primary" id="officializeButton" type="button" disabled>Salvar alteração</button>
-            <button class="button danger" id="closeEditorButton" type="button">Fechar</button>
+            <div class="editor-navigation-actions">
+              <button class="button danger" id="closeEditorButton" type="button">Fechar</button>
+              <button class="button secondary" id="clearNodesButton" type="button" data-permission="editar">Limpar nós</button>
+            </div>
+            <button class="button primary" id="officializeButton" type="button" disabled data-permission="editar">Salvar alteração</button>
           </div>
         </header>
         <div class="editor-help">
@@ -142,16 +150,13 @@
         <header>
           <div>
             <p class="eyebrow">Oficialização da alteração</p>
-            <h2 id="saveConfirmationTitle">Confirmar responsável</h2>
+            <h2 id="saveConfirmationTitle">Confirmar alteração</h2>
           </div>
           <button class="button secondary" id="cancelSaveConfirmationButton" type="button">Cancelar</button>
         </header>
         <div class="save-confirmation-body">
           <p id="saveConfirmationDescription"></p>
-          <label>
-            <span>Operador responsável *</span>
-            <select id="saveOperatorSelect" required></select>
-          </label>
+          <p>Responsável: <strong id="saveLoggedOperator">Usuário logado</strong></p>
           <label>
             <span>Motivo/justificativa *</span>
             <select id="saveReasonInput" required>
@@ -160,14 +165,6 @@
               <option value="Inclusão de ponto">Inclusão de ponto</option>
             </select>
           </label>
-          <p class="save-operator-help">Se o operador não estiver na lista, pressione <strong>F9</strong>.</p>
-          <div class="new-save-operator hidden" id="newSaveOperatorFields">
-            <label>
-              <span>Nome do novo operador</span>
-              <input id="newSaveOperatorName" type="text" autocomplete="off" />
-            </label>
-            <button class="button secondary" id="addSaveOperatorButton" type="button">Adicionar operador</button>
-          </div>
           <p class="save-confirmation-status" id="saveConfirmationStatus"></p>
           <button class="button primary" id="confirmSaveButton" type="submit">Confirmar e salvar</button>
         </div>

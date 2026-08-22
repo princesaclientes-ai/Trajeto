@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="pt-BR" class="auth-pending">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gerenciador de acessos e logs</title>
+    <link rel="stylesheet" href="access-control.css?v=20260821-3" />
+    <link rel="stylesheet" href="gerenciador-acessos.css?v=20260821-1" />
+    <link rel="stylesheet" href="gerenciador-dashboard.css?v=20260821-3" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="access-control.js?v=20260821-7"></script>
+    <script defer src="gerenciador-acessos.js?v=20260821-10"></script>
+  </head>
+  <body>
+    <header class="admin-header">
+      <div class="brand-heading admin-brand">
+        <img class="admin-logo" src="logo-princesa-doeste.png" alt="Princesa D'Oeste" />
+        <div><p>Administração</p><h1>Gerenciador de acessos e logs</h1></div>
+      </div>
+      <section class="header-database-usage" aria-label="Uso do Supabase">
+        <div class="header-database-title"><span>Infraestrutura</span><strong>Supabase</strong></div>
+        <div class="header-database-metric"><span>Banco</span><strong id="managerDatabaseUsage">Carregando...</strong></div>
+        <div class="header-database-metric"><span>Dados do app</span><strong id="managerAppDatabaseUsage">Carregando...</strong></div>
+        <button id="refreshDatabaseUsage" type="button">Atualizar</button>
+        <span id="managerDatabaseUsageStatus" class="header-database-status">Consultando armazenamento...</span>
+      </section>
+    </header>
+    <main>
+      <section class="card">
+        <h2 id="userFormTitle">Criar login</h2>
+        <form id="userForm">
+          <label>Nome<input id="userName" required /></label>
+          <label>Usuário<input id="userLogin" type="text" pattern="[A-Za-z0-9._-]+" autocomplete="off" required /></label>
+          <label>Senha inicial<input id="userPassword" type="password" minlength="8" required /></label>
+          <label>Novo perfil (opcional)<input id="userProfileName" placeholder="Preencha somente para criar um perfil novo" /></label>
+          <label>Perfil existente<select id="userRole" required><option value="">Carregando perfis...</option></select></label>
+          <fieldset class="user-permission-flags">
+            <legend>Permissões individuais</legend>
+            <p>O perfil marca automaticamente. Você pode marcar ou desmarcar para este usuário.</p>
+            <div class="screen-permissions" id="userPermissionOptions">
+              <fieldset><legend>Painel de Pontos</legend>
+                <label><input type="checkbox" value="painel.pesquisar" /> Pesquisa</label>
+                <label><input type="checkbox" value="painel.editar" /> Edição</label>
+                <label><input type="checkbox" value="painel.excluir" /> Exclusão/lixeira</label>
+                <label><input type="checkbox" value="painel.importar" /> Importação</label>
+                <label><input type="checkbox" value="painel.exportar" /> Exportação</label>
+              </fieldset>
+              <fieldset><legend>Consolidado/editor</legend>
+                <label><input type="checkbox" value="consolidado.pesquisar" /> Pesquisa</label>
+                <label><input type="checkbox" value="consolidado.editar" /> Edição/oficialização</label>
+                <label><input type="checkbox" value="consolidado.excluir" /> Exclusão</label>
+              </fieldset>
+              <fieldset><legend>Administração</legend>
+                <label><input type="checkbox" value="gerenciador.gerenciar" /> Gerenciar usuários</label>
+                <label><input type="checkbox" value="gerenciador.logs" /> Logs</label>
+              </fieldset>
+            </div>
+          </fieldset>
+          <fieldset><legend>Empresas permitidas</legend><label class="inline-check"><input id="selectAllCompanies" type="checkbox" /> Selecionar todas</label><div id="companyOptions" class="checks">Carregando...</div></fieldset>
+          <div class="form-actions"><button id="saveUserButton" type="submit">Criar login</button><button id="cancelUserEdit" class="secondary hidden" type="button">Cancelar edição</button></div><span id="userStatus"></span>
+        </form>
+      </section>
+      <section class="card wide"><h2>Usuários</h2><div class="table-wrap"><table><thead><tr><th>Nome</th><th>Usuário</th><th>Perfil</th><th>Empresas</th><th>Status</th><th>Ação</th></tr></thead><tbody id="usersBody"></tbody></table></div></section>
+      <section class="card wide logs-panel" data-permission="logs"><div class="section-title"><h2>Histórico de logs</h2><button id="refreshLogs" type="button">Atualizar</button></div><div class="table-wrap"><table><thead><tr><th>Data</th><th>Usuário</th><th>Empresa</th><th>Ação</th><th>Recurso</th></tr></thead><tbody id="logsBody"></tbody></table></div></section>
+    </main>
+  </body>
+</html>

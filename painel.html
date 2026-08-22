@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" class="auth-pending">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -8,14 +8,16 @@
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     />
-    <link rel="stylesheet" href="painel.css" />
+    <link rel="stylesheet" href="painel.css?v=20260821-2" />
+    <link rel="stylesheet" href="access-control.css?v=20260821-3" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="access-control.js?v=20260821-7"></script>
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     ></script>
     <script src="route-options.js"></script>
     <script src="conductors.js"></script>
-    <script defer src="painel.js"></script>
+    <script defer src="painel.js?v=20260821-5"></script>
   </head>
   <body>
     <main class="dashboard-shell">
@@ -29,7 +31,11 @@
           </div>
         </div>
         <div class="topbar-actions">
-          <button class="button secondary help-questions-button" id="openHelpQuestionsButton" type="button">
+          <button class="button secondary more-information-button" id="openDashboardSummaryButton" type="button" aria-haspopup="dialog">
+            <span class="information-icon" aria-hidden="true">i</span>
+            Mais informações
+          </button>
+          <button class="button secondary help-questions-button" id="openHelpQuestionsButton" type="button" data-permission="editar">
             Perguntas da ajuda
             <span id="pendingHelpCount">0</span>
           </button>
@@ -37,37 +43,26 @@
             <input id="autoRefreshToggle" type="checkbox" checked />
             <span>Ao vivo</span>
           </label>
-          <button class="button secondary" id="trashButton" type="button">Lixeira <span id="trashCount">0</span></button>
+          <button class="button secondary" id="trashButton" type="button" data-permission="excluir">Lixeira <span id="trashCount">0</span></button>
           <button class="button secondary" id="refreshButton" type="button">Atualizar</button>
         </div>
       </header>
 
-      <section class="stats-grid" aria-label="Resumo">
-        <article class="stat-card">
-          <span>Trajetos</span>
-          <strong id="totalRoutes">0</strong>
-        </article>
-        <article class="stat-card">
-          <span>Em andamento</span>
-          <strong id="activeRoutes">0</strong>
-        </article>
-        <article class="stat-card">
-          <span>Condutores</span>
-          <strong id="totalDrivers">0</strong>
-        </article>
-        <article class="stat-card">
-          <span>Visiveis / total</span>
-          <strong id="selectedPointCount">0</strong>
-        </article>
-        <article class="stat-card database-card">
-          <span>Supabase</span>
-          <strong id="databaseUsage">-</strong>
-          <small id="appDatabaseUsage">Dados app: -</small>
-        </article>
-        <article class="stat-card">
-          <span>Ultima atualizacao</span>
-          <strong id="lastRefresh">-</strong>
-        </article>
+      <section class="dashboard-summary-modal hidden" id="dashboardSummaryModal" role="dialog" aria-modal="true" aria-labelledby="dashboardSummaryTitle">
+        <div class="dashboard-summary-backdrop" id="dashboardSummaryBackdrop"></div>
+        <div class="dashboard-summary-dialog">
+          <header>
+            <div><p class="eyebrow">Resumo do painel</p><h2 id="dashboardSummaryTitle">Mais informações</h2></div>
+            <button class="button secondary" id="closeDashboardSummaryButton" type="button">Fechar</button>
+          </header>
+          <div class="summary-stats-grid" aria-label="Resumo">
+            <article class="stat-card"><span>Trajetos</span><strong id="totalRoutes">0</strong></article>
+            <article class="stat-card"><span>Em andamento</span><strong id="activeRoutes">0</strong></article>
+            <article class="stat-card"><span>Condutores</span><strong id="totalDrivers">0</strong></article>
+            <article class="stat-card"><span>Visíveis / total</span><strong id="selectedPointCount">0</strong></article>
+            <article class="stat-card"><span>Última atualização</span><strong id="lastRefresh">-</strong></article>
+          </div>
+        </div>
       </section>
 
       <section class="tracking-checklist-panel" aria-label="Acompanhamento de trajetos">
@@ -184,22 +179,22 @@
             </div>
             <div class="detail-actions">
               <span class="status-pill" id="selectedRouteStatus">-</span>
-              <button class="button secondary" id="validateSelectedButton" type="button" disabled>
+              <button class="button secondary" id="validateSelectedButton" type="button" disabled data-permission="editar">
                 Validar trajeto
               </button>
-              <button class="button secondary" id="previousStatusButton" type="button" disabled>
+              <button class="button secondary" id="previousStatusButton" type="button" disabled data-permission="editar">
                 Voltar etapa
               </button>
-              <button class="button secondary hidden" id="openLayerEditorButton" type="button">
+              <button class="button secondary hidden" id="openLayerEditorButton" type="button" data-permission="editar">
                 Editar camada da rota
               </button>
               <button class="button secondary" id="openDemandHistoryButton" type="button" disabled>
                 Histórico
               </button>
-              <button class="button secondary" id="finishSelectedButton" type="button" disabled>
+              <button class="button secondary" id="finishSelectedButton" type="button" disabled data-permission="editar">
                 Finalizar
               </button>
-              <button class="button danger" id="deleteSelectedButton" type="button" disabled>
+              <button class="button danger" id="deleteSelectedButton" type="button" disabled data-permission="excluir">
                 Excluir
               </button>
               <button class="modal-corner-close" id="closeDetailButton" type="button" aria-label="Fechar detalhes" title="Fechar">
@@ -280,24 +275,27 @@
               </div>
               <span id="mapStatus">Selecione um trajeto</span>
               <div class="export-actions" aria-label="Exportar trajeto">
-                <button class="export-button" id="exportJsonButton" type="button" disabled>
+                <button class="export-button" id="exportJsonButton" type="button" disabled data-permission="exportar">
                   JSON
                 </button>
-                <button class="export-button" id="exportExcelButton" type="button" disabled>
+                <button class="export-button" id="exportKmlButton" type="button" disabled data-permission="exportar">
+                  KML
+                </button>
+                <button class="export-button" id="exportExcelButton" type="button" disabled data-permission="exportar">
                   Excel
                 </button>
               </div>
-              <button class="button danger bulk-delete-button" id="deleteSelectedPointsButton" type="button" disabled>
+              <button class="button danger bulk-delete-button" id="deleteSelectedPointsButton" type="button" disabled data-permission="excluir">
                 Excluir selecionados (0)
               </button>
               <div class="range-delete-controls" aria-label="Excluir pontos por intervalo">
                 <label>De <select id="deleteRangeStart" disabled><option value="">-</option></select></label>
                 <label>Ate <select id="deleteRangeEnd" disabled><option value="">-</option></select></label>
-                <button class="button danger bulk-delete-button" id="deletePointRangeButton" type="button" disabled>
+                <button class="button danger bulk-delete-button" id="deletePointRangeButton" type="button" disabled data-permission="excluir">
                   Excluir intervalo
                 </button>
               </div>
-              <button class="button secondary bulk-delete-button" id="undoDeletePointsButton" type="button" disabled>
+              <button class="button secondary bulk-delete-button" id="undoDeletePointsButton" type="button" disabled data-permission="excluir">
                 Desfazer exclusao
               </button>
               <button class="button secondary" id="openMapButton" type="button" disabled>
@@ -385,13 +383,13 @@
             <button class="map-fit-button" id="toggleTrackPositionsButton" type="button" disabled>
               Exibir posicionamentos
             </button>
-            <button class="map-fit-button" id="editMapButton" type="button" disabled>
+            <button class="map-fit-button" id="editMapButton" type="button" disabled data-permission="editar">
               Editar pontos
             </button>
-            <button class="map-fit-button hidden" id="officializeRouteButton" type="button" disabled aria-hidden="true">
+            <button class="map-fit-button hidden" id="officializeRouteButton" type="button" disabled aria-hidden="true" data-permission="editar">
               Oficializar alteração
             </button>
-            <button class="map-fit-button" id="undoPointOrderButton" type="button" disabled>
+            <button class="map-fit-button" id="undoPointOrderButton" type="button" disabled data-permission="editar">
               Desfazer ordem
             </button>
             <button class="map-close-button" id="closeMapButton" type="button" aria-label="Fechar mapa">
@@ -418,9 +416,9 @@
               <input id="layerEditorSearch" type="search" placeholder="Endereço, latitude ou longitude" autocomplete="off" />
               <button id="layerEditorSearchButton" type="button">Buscar</button>
             </div>
-            <button class="map-fit-button" id="addLayerManualPointButton" type="button">Adicionar ponto manual</button>
-            <button class="map-fit-button" id="clearLayerNodesButton" type="button">Limpar nós</button>
-            <button class="map-fit-button" id="saveOfficialLayerButton" type="button" disabled>Oficializar camada</button>
+            <button class="map-fit-button" id="addLayerManualPointButton" type="button" data-permission="editar">Adicionar ponto manual</button>
+            <button class="map-fit-button" id="clearLayerNodesButton" type="button" data-permission="editar">Limpar nós</button>
+            <button class="map-fit-button" id="saveOfficialLayerButton" type="button" disabled data-permission="editar">Oficializar camada</button>
             <button class="modal-corner-close" id="closeLayerEditorButton" type="button" aria-label="Fechar editor de camada" title="Fechar">
               <span aria-hidden="true">×</span>
             </button>
@@ -450,7 +448,7 @@
               <option value="">Todas</option>
             </select>
           </label>
-          <button class="button danger" id="deleteHelpQuestionButton" type="button" disabled>
+          <button class="button danger" id="deleteHelpQuestionButton" type="button" disabled data-permission="excluir">
             Excluir pergunta e resposta
           </button>
         </div>
@@ -458,7 +456,7 @@
           <aside class="help-question-list" id="helpQuestionList">
             <p class="empty-cell">Carregando perguntas...</p>
           </aside>
-          <form class="help-answer-form" id="helpAnswerForm">
+          <form class="help-answer-form" id="helpAnswerForm" data-permission="editar">
             <input id="helpQuestionId" type="hidden" />
             <label>
               <span>Pergunta recebida</span>
@@ -529,24 +527,13 @@
           </div>
           <button class="button secondary" id="closeAlignmentButton" type="button">Cancelar</button>
         </header>
-        <form class="standard-modal-body" id="alignmentForm">
+        <form class="standard-modal-body" id="alignmentForm" data-permission="editar">
           <p id="alignmentLineDescription"></p>
           <label class="confirm-delete-field">
             <span>Apelido do condutor contatado</span>
             <input id="alignmentDriverAlias" type="text" required autocomplete="off" />
           </label>
-          <label class="confirm-delete-field">
-            <span>Operador responsável</span>
-            <select id="alignmentOperator" required></select>
-          </label>
-          <p>Se o operador não estiver na lista, pressione <strong>F9</strong>.</p>
-          <div class="hidden" id="newOperatorFields">
-            <label class="confirm-delete-field">
-              <span>Nome do novo operador</span>
-              <input id="newOperatorName" type="text" autocomplete="off" />
-            </label>
-            <button class="button secondary" id="addOperatorButton" type="button">Adicionar operador</button>
-          </div>
+          <p>Responsável: <strong id="alignmentLoggedOperator">Usuário logado</strong></p>
           <button class="button primary" id="saveAlignmentButton" type="submit">
             Confirmar alinhamento
           </button>
@@ -567,10 +554,7 @@
         <div class="standard-modal-body">
           <p id="confirmDeleteDescription"></p>
           <p>O trajeto ficará na lixeira por 30 dias e poderá ser restaurado nesse período.</p>
-          <label class="confirm-delete-field">
-            <span>Operador responsável pela exclusão</span>
-            <select id="deleteOperatorSelect" required></select>
-          </label>
+          <p>Responsável pela exclusão: <strong id="deleteLoggedOperator">Usuário logado</strong></p>
           <label class="confirm-delete-field">
             <span class="manual-confirmation-text">Para confirmar, escreva <strong>EXCLUIR</strong></span>
             <input id="confirmDeleteInput" type="text" autocomplete="off" placeholder="EXCLUIR" />

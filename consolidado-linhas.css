@@ -816,7 +816,14 @@ body.standalone-study .editor-actions input {
 }
 
 body.standalone-study #closeEditorButton {
-  display: none;
+  display: inline-flex;
+}
+
+.editor-navigation-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 body.standalone-study .editor-help {
@@ -875,11 +882,11 @@ body.standalone-study .editor-help {
     grid-column: 2;
     grid-row: 1;
     align-self: stretch;
-    justify-content: center;
-    padding-inline: 8px;
+    justify-content: flex-start;
+    padding-inline: 0;
   }
 
-  body.standalone-study #clearNodesButton {
+  body.standalone-study .editor-navigation-actions {
     grid-column: 2;
     grid-row: 2;
     justify-self: end;
@@ -888,6 +895,15 @@ body.standalone-study .editor-help {
   body.standalone-study #officializeButton {
     grid-column: 3;
     grid-row: 2;
+  }
+
+}
+
+@media (max-width: 620px) {
+  body.standalone-study .editor-navigation-actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
 }
 
@@ -956,6 +972,37 @@ body.standalone-study .editor-help {
   body:not(.standalone-study) .page-shell > .topbar .topbar-actions label {
     font-size: .58rem;
   }
+}
+
+/* Cabeçalho consolidado com mais respiro e título completo. */
+@media (min-width: 900px) {
+  body:not(.standalone-study) .page-shell > .topbar {
+    min-height: 80px;
+    padding: 10px 16px;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .brand-heading {
+    flex-basis: clamp(350px, 21vw, 410px);
+    min-width: 350px;
+  }
+  body:not(.standalone-study) .page-shell > .topbar h1 {
+    font-size: 1.12rem;
+  }
+  body:not(.standalone-study) .page-shell > .topbar select,
+  body:not(.standalone-study) .page-shell > .topbar input,
+  body:not(.standalone-study) .page-shell > .topbar .button {
+    min-height: 38px;
+  }
+  .page-status-toast { top: 88px; }
+}
+
+/* O checkbox do estudo não pode herdar a largura de 100% dos campos de texto. */
+body.standalone-study .editor-actions .editor-checkbox input[type="checkbox"] {
+  width: 18px !important;
+  min-width: 18px !important;
+  max-width: 18px !important;
+  height: 18px;
+  flex: 0 0 18px;
+  padding: 0;
 }
 
 /* Confirmação de operador e justificativa ao salvar/restaurar. */
@@ -1037,4 +1084,159 @@ body.standalone-study .editor-help {
   .save-confirmation-modal { padding: 0; }
   .save-confirmation-dialog { width: 100vw; max-height: 100dvh; border-radius: 0; overflow-y: auto; }
   .new-save-operator { grid-template-columns: 1fr; }
+}
+
+/* Cabeçalho final enxuto da visão consolidada. */
+body:not(.standalone-study) .page-shell > .topbar #pageStatus,
+body:not(.standalone-study) .page-shell > .topbar .eyebrow { display: none; }
+
+@media (min-width: 900px) {
+  body:not(.standalone-study) .page-shell > .topbar {
+    min-height: 50px;
+    padding: 4px 10px;
+    gap: 8px;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .brand-heading {
+    flex: 0 0 275px;
+    min-width: 275px;
+    gap: 8px;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .header-logo {
+    width: 82px;
+    padding: 3px 5px;
+  }
+  body:not(.standalone-study) .page-shell > .topbar h1 {
+    overflow: hidden;
+    font-size: .98rem;
+    line-height: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .topbar-actions {
+    grid-template-columns:
+      minmax(130px, .9fr)
+      minmax(115px, .75fr)
+      minmax(175px, 1.15fr)
+      minmax(115px, .68fr);
+    gap: 5px;
+  }
+  body:not(.standalone-study) .page-shell > .topbar select,
+  body:not(.standalone-study) .page-shell > .topbar input,
+  body:not(.standalone-study) .page-shell > .topbar .button {
+    min-height: 29px;
+    padding-inline: 7px;
+    font-size: .66rem;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .topbar-actions label {
+    gap: 1px;
+    font-size: .54rem;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .checkbox-filter {
+    min-height: 29px;
+    font-size: .55rem;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .checkbox-filter input {
+    width: 15px;
+    height: 15px;
+  }
+}
+
+.page-status-toast {
+  position: fixed;
+  z-index: 120000;
+  top: 68px;
+  left: 50%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: min(520px, calc(100vw - 24px));
+  padding: 12px 14px;
+  transform: translateX(-50%);
+  border: 1px solid #91d9d3;
+  border-left: 5px solid #00a69c;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 14px 38px #101a3a3d;
+  color: #152064;
+  font-size: 13px;
+  font-weight: 700;
+}
+.page-status-toast.hidden { display: none !important; }
+.page-status-toast.error { border-color: #efb5ba; border-left-color: #b43d47; color: #8b2530; }
+.page-status-toast span { flex: 1; line-height: 1.35; }
+.page-status-toast button { min-height: 0; padding: 0; border: 0; background: transparent; color: inherit; font-size: 22px; line-height: 1; cursor: pointer; }
+@media (max-width: 899px) { .page-status-toast { top: 12px; } }
+
+/* Alinhamento definitivo com a altura do cabeçalho do Painel. */
+body:not(.standalone-study) .page-shell > .topbar .eyebrow { display: block; }
+@media (min-width: 900px) {
+  body:not(.standalone-study) .page-shell > .topbar {
+    min-height: 66px;
+    padding: 8px 14px;
+    gap: 12px;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .brand-heading {
+    flex: 0 0 clamp(310px, 19vw, 360px);
+    min-width: 310px;
+    gap: 10px;
+    overflow: hidden;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .header-logo {
+    width: 104px;
+    padding: 4px 7px;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .brand-heading > div {
+    min-width: 0;
+    overflow: hidden;
+  }
+  body:not(.standalone-study) .page-shell > .topbar h1 {
+    overflow: hidden;
+    font-size: 1.1rem;
+    line-height: 1.05;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .eyebrow {
+    margin-bottom: 2px;
+    font-size: .62rem;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .topbar-actions {
+    min-width: 0;
+    grid-template-columns:
+      minmax(145px, .95fr)
+      minmax(125px, .78fr)
+      minmax(200px, 1.25fr)
+      minmax(135px, .72fr);
+    gap: 6px;
+  }
+  body:not(.standalone-study) .page-shell > .topbar select,
+  body:not(.standalone-study) .page-shell > .topbar input,
+  body:not(.standalone-study) .page-shell > .topbar .button {
+    min-height: 35px;
+    font-size: .7rem;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .topbar-actions label {
+    font-size: .58rem;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .checkbox-filter {
+    min-height: 35px;
+    font-size: .58rem;
+  }
+}
+
+/* Prioridade final: cabeçalho mais alto solicitado. */
+@media (min-width: 900px) {
+  body:not(.standalone-study) .page-shell > .topbar {
+    min-height: 80px;
+    padding: 10px 16px;
+  }
+  body:not(.standalone-study) .page-shell > .topbar .brand-heading {
+    flex-basis: clamp(350px, 21vw, 410px);
+    min-width: 350px;
+  }
+  body:not(.standalone-study) .page-shell > .topbar h1 { font-size: 1.12rem; }
+  body:not(.standalone-study) .page-shell > .topbar select,
+  body:not(.standalone-study) .page-shell > .topbar input,
+  body:not(.standalone-study) .page-shell > .topbar .button { min-height: 38px; }
+  .page-status-toast { top: 88px; }
 }

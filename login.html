@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acesso ao sistema</title>
+    <link rel="stylesheet" href="login.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script defer src="access-control.js?v=20260821-4"></script>
+    <script defer src="login.js?v=20260821-2"></script>
+  </head>
+  <body>
+    <main class="login-card">
+      <img src="logo-princesa-doeste.png" alt="Princesa D'Oeste" />
+      <p class="eyebrow">Acesso administrativo</p>
+      <h1>Entrar no sistema</h1>
+      <p>Use o login cadastrado pelo administrador.</p>
+      <form id="loginForm">
+        <label>Usuário<input id="loginUser" type="text" autocomplete="username" autocapitalize="none" required /></label>
+        <label>Senha<input id="loginPassword" type="password" autocomplete="current-password" required /></label>
+        <button id="loginButton" type="submit">Entrar</button>
+        <p id="loginStatus" role="alert"></p>
+      </form>
+      <small>As telas de captura dos motoristas permanecem públicas.</small>
+    </main>
+  </body>
+</html>

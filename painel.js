@@ -5,7 +5,7 @@ const ROUTING_CHUNK_SIZE = 25;
 const POINT_UPDATE_CONCURRENCY = 25;
 const ROUTING_SERVICE_URL = "https://router.project-osrm.org/route/v1/driving";
 
-const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseClient = window.appSupabaseClient || supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let routeOptions = [...(window.ROUTE_OPTIONS || [])];
 const conductors = window.CONDUCTOR_BASE || [];
 const conductorByRegistration = new Map(
@@ -20,9 +20,11 @@ const totalRoutes = document.querySelector("#totalRoutes");
 const activeRoutes = document.querySelector("#activeRoutes");
 const totalDrivers = document.querySelector("#totalDrivers");
 const selectedPointCount = document.querySelector("#selectedPointCount");
-const databaseUsage = document.querySelector("#databaseUsage");
-const appDatabaseUsage = document.querySelector("#appDatabaseUsage");
 const lastRefresh = document.querySelector("#lastRefresh");
+const openDashboardSummaryButton = document.querySelector("#openDashboardSummaryButton");
+const dashboardSummaryModal = document.querySelector("#dashboardSummaryModal");
+const dashboardSummaryBackdrop = document.querySelector("#dashboardSummaryBackdrop");
+const closeDashboardSummaryButton = document.querySelector("#closeDashboardSummaryButton");
 const driverFilter = document.querySelector("#driverFilter");
 const clientFilter = document.querySelector("#clientFilter");
 const directionFilter = document.querySelector("#directionFilter");
@@ -72,6 +74,7 @@ const mapModalTitle = document.querySelector("#mapModalTitle");
 const mapPointSearch = document.querySelector("#mapPointSearch");
 const mapSearchButton = document.querySelector("#mapSearchButton");
 const exportJsonButton = document.querySelector("#exportJsonButton");
+const exportKmlButton = document.querySelector("#exportKmlButton");
 const exportExcelButton = document.querySelector("#exportExcelButton");
 const mapViewInputs = document.querySelectorAll('input[name="mapView"], input[name="mapViewModal"]');
 const mapInsertType = document.querySelector("#mapInsertType");
@@ -115,7 +118,7 @@ const confirmDeleteDescription = document.querySelector("#confirmDeleteDescripti
 const confirmDeleteInput = document.querySelector("#confirmDeleteInput");
 const confirmDeleteButton = document.querySelector("#confirmDeleteButton");
 const cancelDeleteButton = document.querySelector("#cancelDeleteButton");
-const deleteOperatorSelect = document.querySelector("#deleteOperatorSelect");
+const deleteLoggedOperator = document.querySelector("#deleteLoggedOperator");
 const trashModal = document.querySelector("#trashModal");
 const trashBackdrop = document.querySelector("#trashBackdrop");
 const closeTrashButton = document.querySelector("#closeTrashButton");
@@ -126,10 +129,7 @@ const closeAlignmentButton = document.querySelector("#closeAlignmentButton");
 const alignmentForm = document.querySelector("#alignmentForm");
 const alignmentLineDescription = document.querySelector("#alignmentLineDescription");
 const alignmentDriverAlias = document.querySelector("#alignmentDriverAlias");
-const alignmentOperator = document.querySelector("#alignmentOperator");
-const newOperatorFields = document.querySelector("#newOperatorFields");
-const newOperatorName = document.querySelector("#newOperatorName");
-const addOperatorButton = document.querySelector("#addOperatorButton");
+const alignmentLoggedOperator = document.querySelector("#alignmentLoggedOperator");
 const demandHistoryModal = document.querySelector("#demandHistoryModal");
 const demandHistoryBackdrop = document.querySelector("#demandHistoryBackdrop");
 const closeDemandHistoryButton = document.querySelector("#closeDemandHistoryButton");
@@ -183,6 +183,7 @@ let pendingHelpQuestions = [];
 let routePendingDeletion = null;
 let executionAlignments = [];
 let alignmentOperators = [];
+let loggedPlanningOperator = null;
 let demandHistory = [];
 let pendingAlignmentOption = null;
 
@@ -581,6 +582,18 @@ function updateLastRefresh() {
   }).format(new Date());
 }
 
+function openDashboardSummary() {
+  dashboardSummaryModal.classList.remove("hidden");
+  document.body.classList.add("summary-modal-open");
+  closeDashboardSummaryButton.focus();
+}
+
+function closeDashboardSummary() {
+  dashboardSummaryModal.classList.add("hidden");
+  document.body.classList.remove("summary-modal-open");
+  openDashboardSummaryButton.focus();
+}
+
 function getStatusLabel(status) {
   const labels = {
     em_andamento: "em andamento",
@@ -749,6 +762,15 @@ function buildJsonExport(route, points, routedLatLngs = null) {
   const stopPoints = getRouteStopPoints(points);
   const officialGeometry = getOfficialRouteGeometry(route);
   const exportGeometry = routedLatLngs?.length ? routedLatLngs : officialGeometry;
+  // A camada oficial passa pelos pontos manuais. No JSON esses pontos ja sao
+  // enviados separadamente em `pontos`; mantê-los também nas coordenadas da
+  // rota faz o aplicativo consumidor importá-los duas vezes.
+  const routeCoordinates = (exportGeometry.length
+    ? exportGeometry.map(([latitude, longitude]) => ({ latitude, longitude }))
+    : trackPoints
+  ).filter((coordinate) => !stopPoints.some((stopPoint) =>
+    arePointsAtSameLocation(coordinate, stopPoint, 2)
+  ));
   const manualIndexByPoint = new Map(
     stopPoints.map((point, index) => [point, index])
   );
@@ -757,8 +779,8 @@ function buildJsonExport(route, points, routedLatLngs = null) {
     {
       resumo: buildExportSummary(route, points),
       trajeto: {
-        quantidade_pontos: exportGeometry.length || trackPoints.length,
-        coordenadas: (exportGeometry.length ? exportGeometry.map(([latitude, longitude]) => ({ latitude, longitude })) : trackPoints).map((point, index) => ({
+        quantidade_pontos: routeCoordinates.length,
+        coordenadas: routeCoordinates.map((point, index) => ({
           ordem: index + 1,
           lat: point.latitude,
           lon: point.longitude,
@@ -783,10 +805,11 @@ function buildJsonExport(route, points, routedLatLngs = null) {
   );
 }
 
-function buildKmlExport(route, points) {
+function buildKmlExport(route, points, routedLatLngs = null) {
   const name = escapeXml(getExportName(route));
   const trackPoints = getRouteTrackPoints(points);
   const stopPoints = getRouteStopPoints(points);
+  const manualIndexByPoint = new Map(stopPoints.map((point, index) => [point, index]));
   const summary = buildExportSummary(route, points);
   const summaryData = [
     ["Cliente", summary.cliente],
@@ -812,20 +835,32 @@ function buildKmlExport(route, points) {
     )
     .join("\n");
   const officialGeometry = getOfficialRouteGeometry(route);
-  const lineCoordinates = officialGeometry.length
-    ? officialGeometry.map(([latitude, longitude]) => ({ latitude, longitude }))
+  const exportGeometry = routedLatLngs?.length ? routedLatLngs : officialGeometry;
+  const lineCoordinates = exportGeometry.length
+    ? exportGeometry.map(([latitude, longitude]) => ({ latitude, longitude }))
     : trackPoints;
   const coordinates = lineCoordinates
     .map((point) => `          ${point.longitude},${point.latitude},0`)
     .join("\n");
   const pointPlacemarks = stopPoints
-    .map((point) => {
-      const pointName = escapeXml(`Ponto ${getExportName(route)} - ${getPointTime(point) || point.ordem_ponto}`);
+    .map((point, index) => {
+      const pointName = escapeXml(getJsonPointName(
+        route, point, manualIndexByPoint.get(point) ?? -1, stopPoints.length
+      ));
+      const pointTime = getPointTime(point);
       const description = escapeXml(getPointTypeLabel(point.tipo_ponto));
 
       return `    <Placemark>
       <name>${pointName}</name>
       <description>${description}</description>
+      <ExtendedData>
+        <Data name="ordem"><value>${index + 1}</value></Data>
+        <Data name="nome"><value>${pointName}</value></Data>
+        <Data name="horario"><value>${escapeXml(pointTime || "")}</value></Data>
+        <Data name="descricao"><value>${description}</value></Data>
+        <Data name="lat"><value>${escapeXml(point.latitude)}</value></Data>
+        <Data name="lon"><value>${escapeXml(point.longitude)}</value></Data>
+      </ExtendedData>
       <styleUrl>#pontoParada</styleUrl>
       <Point>
         <coordinates>${point.longitude},${point.latitude},0</coordinates>
@@ -869,6 +904,9 @@ ${extendedData}
       <name>Trajeto</name>
       <Placemark>
         <name>${name}</name>
+        <ExtendedData>
+          <Data name="quantidade_pontos"><value>${lineCoordinates.length}</value></Data>
+        </ExtendedData>
         <styleUrl>#trajetoLine</styleUrl>
         <LineString>
           <tessellate>1</tessellate>
@@ -1200,6 +1238,7 @@ async function exportSelectedRoute(format) {
   }
 
   exportJsonButton.disabled = true;
+  exportKmlButton.disabled = true;
   exportExcelButton.disabled = true;
   setMessage("Atualizando a rota oficial e os pontos antes da exportação...", "");
   try {
@@ -1221,6 +1260,7 @@ async function exportSelectedRoute(format) {
   } catch (error) {
     setMessage(`Erro ao atualizar os dados para exportação: ${error.message}`, "error");
     exportJsonButton.disabled = false;
+    exportKmlButton.disabled = false;
     exportExcelButton.disabled = false;
     return;
   }
@@ -1229,6 +1269,7 @@ async function exportSelectedRoute(format) {
   if (exportPoints.length === 0) {
     setMessage("A rota oficial não possui pontos para exportar.", "error");
     exportJsonButton.disabled = true;
+    exportKmlButton.disabled = true;
     exportExcelButton.disabled = true;
     return;
   }
@@ -1236,13 +1277,37 @@ async function exportSelectedRoute(format) {
   const filename = slugify(getExportName(route));
 
   if (format === "kml") {
-    downloadTextFile(
-      `${filename}-trajeto-pontos.kml`,
-      buildKmlExport(route, exportPoints),
-      "application/vnd.google-earth.kml+xml;charset=utf-8"
-    );
-    exportJsonButton.disabled = false;
-    exportExcelButton.disabled = false;
+    const trackPoints = getRouteTrackPoints(exportPoints);
+    if (trackPoints.length < 2) {
+      setMessage("O trajeto precisa ter pelo menos dois registros para exportar em KML.", "error");
+      exportJsonButton.disabled = true;
+      exportKmlButton.disabled = true;
+      exportExcelButton.disabled = false;
+      return;
+    }
+    setMessage("Calculando o trajeto pelas ruas para gerar o KML...", "");
+    try {
+      const officialGeometry = getOfficialRouteGeometry(route);
+      const routedLatLngs = officialGeometry.length
+        ? officialGeometry
+        : await fetchRoutedLatLngs(getRoutingControlPoints(trackPoints));
+      if (routedLatLngs.length < 2) {
+        throw new Error("não foi possível gerar a geometria detalhada da rota");
+      }
+      downloadTextFile(
+        `${filename}-trajeto-pontos.kml`,
+        buildKmlExport(route, exportPoints, routedLatLngs),
+        "application/vnd.google-earth.kml+xml;charset=utf-8"
+      );
+      setMessage("KML gerado com as mesmas informações do JSON e trajeto ajustado pelas ruas.", "success");
+    } catch (error) {
+      setMessage(`Erro ao gerar KML pelas ruas: ${error.message}`, "error");
+    } finally {
+      const unavailable = getRouteTrackPoints(exportPoints).length < 2;
+      exportJsonButton.disabled = unavailable;
+      exportKmlButton.disabled = unavailable;
+      exportExcelButton.disabled = false;
+    }
     return;
   }
 
@@ -1275,6 +1340,7 @@ async function exportSelectedRoute(format) {
     } finally {
       exportOrusButton.disabled = getRouteTrackPoints(exportPoints).length < 2;
       exportJsonButton.disabled = getRouteTrackPoints(exportPoints).length < 2;
+      exportKmlButton.disabled = getRouteTrackPoints(exportPoints).length < 2;
       exportExcelButton.disabled = false;
     }
     return;
@@ -1285,6 +1351,7 @@ async function exportSelectedRoute(format) {
     if (trackPoints.length < 2) {
       setMessage("O trajeto precisa ter pelo menos dois registros para exportar em JSON.", "error");
       exportJsonButton.disabled = true;
+      exportKmlButton.disabled = true;
       exportExcelButton.disabled = false;
       return;
     }
@@ -1308,6 +1375,7 @@ async function exportSelectedRoute(format) {
       setMessage(`Erro ao gerar JSON pelas ruas: ${error.message}`, "error");
     } finally {
       exportJsonButton.disabled = getRouteTrackPoints(exportPoints).length < 2;
+      exportKmlButton.disabled = getRouteTrackPoints(exportPoints).length < 2;
       exportExcelButton.disabled = false;
     }
     return;
@@ -1319,6 +1387,7 @@ async function exportSelectedRoute(format) {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   );
   exportJsonButton.disabled = false;
+  exportKmlButton.disabled = false;
   exportExcelButton.disabled = false;
   setMessage("Excel gerado com a versão oficial mais recente da rota.", "success");
 }
@@ -3026,6 +3095,7 @@ function createPointPopupContent(point, maxOrder, overlapInfo = null) {
     const deleteButton = document.createElement("button");
     deleteButton.className = "popup-danger-button";
     deleteButton.type = "button";
+    deleteButton.dataset.permission = "excluir";
     deleteButton.textContent = point.tipo_ponto === "no"
       ? "Excluir nó"
       : point.tipo_ponto === "manual" ? "Excluir ponto manual" : "Excluir ponto";
@@ -3550,17 +3620,6 @@ function closeDemandHistoryModal() {
   }
 }
 
-function populateAlignmentOperators(selectedId = "") {
-  alignmentOperator.innerHTML = '<option value="">Selecione o operador</option>';
-  alignmentOperators.forEach((operator) => {
-    const option = document.createElement("option");
-    option.value = operator.id;
-    option.textContent = operator.nome;
-    option.selected = operator.id === selectedId;
-    alignmentOperator.appendChild(option);
-  });
-}
-
 function populateOperatorFilter() {
   const previousValue = operatorFilter.value;
   operatorFilter.innerHTML = '<option value="">Todos os operadores</option>';
@@ -3581,9 +3640,7 @@ function openAlignmentModal(option) {
   alignmentLineDescription.textContent =
     `${option.cliente} — ${option.nome_linha || "-"} — ${option.sentido || "-"}`;
   alignmentDriverAlias.value = existing?.apelido_condutor || "";
-  populateAlignmentOperators(existing?.operador_id || "");
-  newOperatorFields.classList.add("hidden");
-  newOperatorName.value = "";
+  if (alignmentLoggedOperator) alignmentLoggedOperator.textContent = loggedPlanningOperator?.nome || window.appAccess?.profile?.nome || "Usuário logado";
   alignmentModal.classList.remove("hidden");
   document.body.classList.add("modal-open");
   setTimeout(() => alignmentDriverAlias.focus(), 0);
@@ -3592,10 +3649,25 @@ function openAlignmentModal(option) {
 function closeAlignmentModal() {
   pendingAlignmentOption = null;
   alignmentModal.classList.add("hidden");
-  newOperatorFields.classList.add("hidden");
   if (!isMapModalOpen && !isDetailModalOpen && !isLayerEditorOpen) {
     document.body.classList.remove("modal-open");
   }
+}
+
+async function ensureLoggedPlanningOperator() {
+  if (loggedPlanningOperator) return loggedPlanningOperator;
+  const profile = window.appAccess?.profile;
+  const nome = String(profile?.nome || profile?.usuario || "Usuário autenticado").trim();
+  const { data, error } = await supabaseClient.from("operadores_planejamento")
+    .upsert({ nome, ativo: true }, { onConflict: "nome" })
+    .select("id, nome")
+    .single();
+  if (error) throw error;
+  loggedPlanningOperator = data;
+  if (!alignmentOperators.some((item) => item.id === data.id)) alignmentOperators.push(data);
+  if (alignmentLoggedOperator) alignmentLoggedOperator.textContent = data.nome;
+  if (deleteLoggedOperator) deleteLoggedOperator.textContent = data.nome;
+  return data;
 }
 
 async function loadExecutionPlanning() {
@@ -3698,33 +3770,16 @@ async function ensureAutomaticDemandHistory() {
 }
 
 function requestOperatorForAction(actionLabel) {
-  if (!alignmentOperators.length) {
-    setMessage("Cadastre um operador pelo alinhamento usando F9.", "error");
-    return null;
-  }
-  const list = alignmentOperators
-    .map((operator, index) => `${index + 1} - ${operator.nome}`)
-    .join("\n");
-  const answer = window.prompt(
-    `${actionLabel}\n\nSelecione o operador responsável:\n${list}\n\nDigite o número:`
-  );
-  if (answer === null) return null;
-  const selected = alignmentOperators[Number(answer) - 1];
-  if (!selected) {
-    setMessage("Operador inválido. A ação foi cancelada.", "error");
-    return null;
-  }
-  return selected;
+  return loggedPlanningOperator;
 }
 
 async function saveExecutionAlignment(event) {
   event.preventDefault();
   if (!pendingAlignmentOption) return;
   const apelido = alignmentDriverAlias.value.trim();
-  const operatorId = alignmentOperator.value;
-  const operator = alignmentOperators.find((item) => item.id === operatorId);
+  const operator = await ensureLoggedPlanningOperator();
   if (!apelido || !operator) {
-    setMessage("Informe o apelido do condutor e selecione o operador responsável.", "error");
+    setMessage("Informe o apelido do condutor.", "error");
     return;
   }
   const option = pendingAlignmentOption;
@@ -3753,27 +3808,6 @@ async function saveExecutionAlignment(event) {
   closeAlignmentModal();
   renderTrackingChecklist();
   setMessage("Linha marcada como Alinhado com o condutor.", "success");
-}
-
-async function addPlanningOperator() {
-  const nome = newOperatorName.value.trim();
-  if (!nome) {
-    newOperatorName.focus();
-    return;
-  }
-  const { data, error } = await supabaseClient
-    .from("operadores_planejamento")
-    .upsert({ nome, ativo: true }, { onConflict: "nome" })
-    .select("id, nome")
-    .single();
-  if (error) {
-    setMessage(`Erro ao cadastrar operador: ${error.message}`, "error");
-    return;
-  }
-  await loadExecutionPlanning();
-  populateAlignmentOperators(data.id);
-  newOperatorFields.classList.add("hidden");
-  setMessage("Operador adicionado à lista.", "success");
 }
 
 function renderTrackingChecklist() {
@@ -3846,13 +3880,13 @@ function renderTrackingChecklist() {
         }
       </div>
       <div class="checklist-actions">
-        <button class="button secondary" type="button" data-action="align">
+        <button class="button secondary" type="button" data-action="align" data-permission="editar">
           ${alignment ? "Editar alinhamento" : "Alinhar condutor"}
         </button>
         <button class="button secondary" type="button" data-action="view" ${route ? "" : "disabled"}>
           Visualizar
         </button>
-        <button class="button danger" type="button" data-action="delete" ${route ? "" : "disabled"}>
+        <button class="button danger" type="button" data-action="delete" data-permission="excluir" ${route ? "" : "disabled"}>
           Excluir
         </button>
       </div>
@@ -3870,6 +3904,7 @@ function renderTrackingChecklist() {
     card.querySelector('[data-action="delete"]')?.addEventListener("click", () =>
       deleteRoute(route)
     );
+    AppAccess.applyPermissions(card);
     card.querySelector('[data-action="align"]')?.addEventListener("click", () =>
       openAlignmentModal(option)
     );
@@ -3931,6 +3966,7 @@ function renderRouteDetails(route, points) {
     lastPointOrderSnapshot.routeId !== selectedRouteId ||
     Boolean(savingPointId);
   exportJsonButton.disabled = !route || points.length === 0;
+  exportKmlButton.disabled = !route || points.length === 0;
   exportExcelButton.disabled = !route || points.length === 0;
   renderRouteMap(visiblePoints);
   updatePointSelectionControls(visiblePoints);
@@ -4011,61 +4047,6 @@ async function loadPointCounts(routeIds) {
   });
 }
 
-async function loadDatabaseUsage() {
-  databaseUsage.textContent = "Carregando";
-  appDatabaseUsage.textContent = "Dados app: carregando";
-  databaseUsage.title = "Consultando uso do banco no Supabase";
-
-  try {
-    const { data, error } = await supabaseClient.rpc("get_database_usage");
-
-    if (error) {
-      throw error;
-    }
-
-    const usage = Array.isArray(data) ? data[0] : data;
-
-    if (!usage) {
-      databaseUsage.textContent = "-";
-      appDatabaseUsage.textContent = "Dados app: -";
-      databaseUsage.title = "Supabase nao retornou dados de uso do banco";
-      return;
-    }
-
-    const usedBytes = Number(usage.used_bytes);
-    const limitBytes = Number(usage.limit_bytes);
-    const appUsedBytes = Number(usage.app_used_bytes);
-
-    if (!Number.isFinite(usedBytes) || !Number.isFinite(limitBytes)) {
-      databaseUsage.textContent = "-";
-      appDatabaseUsage.textContent = "Dados app: -";
-      databaseUsage.title = "Retorno invalido da funcao get_database_usage";
-      return;
-    }
-
-    databaseUsage.textContent = `${formatBytes(usage.used_bytes)} / ${formatBytes(
-      usage.limit_bytes
-    )}`;
-    appDatabaseUsage.textContent = Number.isFinite(appUsedBytes)
-      ? `Dados app: ${formatBytes(appUsedBytes)}`
-      : "Dados app: atualizar SQL";
-    databaseUsage.title = `Uso do banco Supabase: ${formatBytes(usedBytes)} de ${formatBytes(limitBytes)}`;
-    appDatabaseUsage.title = Number.isFinite(appUsedBytes)
-      ? "Espaco usado pelas tabelas public.trajetos e public.trajeto_pontos, incluindo indices"
-      : "Atualize a funcao get_database_usage no SQL Editor do Supabase para ver o uso das tabelas do app";
-  } catch (error) {
-    const message = error?.message || "";
-    const missingRpc = error?.code === "PGRST202" || message.toLowerCase().includes("get_database_usage");
-
-    databaseUsage.textContent = missingRpc ? "executar SQL" : "indisponivel";
-    appDatabaseUsage.textContent = "Dados app: -";
-    databaseUsage.title = missingRpc
-      ? "Execute a funcao get_database_usage do arquivo supabase.sql no SQL Editor do Supabase."
-      : `Nao foi possivel consultar o uso do banco: ${message}`;
-    console.warn("Nao foi possivel carregar uso do banco.", error);
-  }
-}
-
 async function loadSelectedRouteDetails() {
   if (!selectedRouteId) {
     renderRouteDetails(null, []);
@@ -4130,7 +4111,6 @@ async function loadRoutes() {
   renderRouteList();
   renderTrackingChecklist();
   await loadSelectedRouteDetails();
-  await loadDatabaseUsage();
   updateLastRefresh();
 }
 
@@ -4317,13 +4297,7 @@ async function deleteRoute(route) {
 
   routePendingDeletion = route;
   confirmDeleteDescription.textContent = `Você pretende excluir a linha ${route.nome_linha || "-"} do cliente ${route.cliente || "-"}, referente ao dia ${formatShortDate(route.data_hora_inicio)}?`;
-  deleteOperatorSelect.innerHTML = '<option value="">Selecione o operador</option>';
-  alignmentOperators.forEach((operator) => {
-    const option = document.createElement("option");
-    option.value = operator.id;
-    option.textContent = operator.nome;
-    deleteOperatorSelect.appendChild(option);
-  });
+  if (deleteLoggedOperator) deleteLoggedOperator.textContent = loggedPlanningOperator?.nome || "Usuário logado";
   confirmDeleteInput.value = "";
   confirmDeleteButton.disabled = true;
   confirmDeleteModal.classList.remove("hidden");
@@ -4341,9 +4315,7 @@ function closeDeleteConfirmation() {
 
 async function confirmRouteDeletion() {
   const route = routePendingDeletion;
-  const deletionOperator = alignmentOperators.find(
-    (operator) => operator.id === deleteOperatorSelect.value
-  );
+  const deletionOperator = await ensureLoggedPlanningOperator();
   if (!route || !deletionOperator ||
       confirmDeleteInput.value.trim().toUpperCase() !== "EXCLUIR") return;
 
@@ -4936,6 +4908,7 @@ mapModalBackdrop.addEventListener("click", closeMapModal);
 closeDetailButton.addEventListener("click", closeDetailModal);
 detailModalBackdrop.addEventListener("click", closeDetailModal);
 exportJsonButton.addEventListener("click", () => exportSelectedRoute("json"));
+exportKmlButton.addEventListener("click", () => exportSelectedRoute("kml"));
 exportExcelButton.addEventListener("click", () => exportSelectedRoute("excel"));
 fitMapButton.addEventListener("click", () => {
   mapUserAdjustedView = false;
@@ -4979,13 +4952,6 @@ addLayerManualPointButton.addEventListener("click", () => {
 alignmentForm.addEventListener("submit", saveExecutionAlignment);
 closeAlignmentButton.addEventListener("click", closeAlignmentModal);
 alignmentBackdrop.addEventListener("click", closeAlignmentModal);
-addOperatorButton.addEventListener("click", addPlanningOperator);
-document.addEventListener("keydown", (event) => {
-  if (event.key !== "F9" || alignmentModal.classList.contains("hidden")) return;
-  event.preventDefault();
-  newOperatorFields.classList.remove("hidden");
-  setTimeout(() => newOperatorName.focus(), 0);
-});
 clearLayerNodesButton.addEventListener("click", async () => {
   layerEditorNodes = [];
   layerEditorStatus.textContent = "Removendo os nós e recalculando a rota...";
@@ -5013,11 +4979,9 @@ previousStatusButton.addEventListener("click", returnRouteToPreviousStatus);
 deleteSelectedButton.addEventListener("click", deleteSelectedRoute);
 function syncDeleteConfirmationButton() {
   confirmDeleteButton.disabled =
-    confirmDeleteInput.value.trim().toUpperCase() !== "EXCLUIR" ||
-    !deleteOperatorSelect.value;
+    confirmDeleteInput.value.trim().toUpperCase() !== "EXCLUIR";
 }
 confirmDeleteInput.addEventListener("input", syncDeleteConfirmationButton);
-deleteOperatorSelect.addEventListener("change", syncDeleteConfirmationButton);
 confirmDeleteInput.addEventListener("paste", (event) => event.preventDefault());
 confirmDeleteInput.addEventListener("drop", (event) => event.preventDefault());
 confirmDeleteInput.addEventListener("cut", (event) => event.preventDefault());
@@ -5057,6 +5021,9 @@ lineFilter.addEventListener("change", renderFilteredViews);
 statusFilter.addEventListener("change", renderFilteredViews);
 operatorFilter.addEventListener("change", renderFilteredViews);
 openHelpQuestionsButton.addEventListener("click", openHelpAdmin);
+openDashboardSummaryButton.addEventListener("click", openDashboardSummary);
+closeDashboardSummaryButton.addEventListener("click", closeDashboardSummary);
+dashboardSummaryBackdrop.addEventListener("click", closeDashboardSummary);
 closeHelpAdminButton.addEventListener("click", closeHelpAdmin);
 helpAdminBackdrop.addEventListener("click", closeHelpAdmin);
 helpAnswerForm.addEventListener("submit", saveHelpAnswer);
@@ -5064,7 +5031,9 @@ helpQuestionStatusFilter.addEventListener("change", loadPendingHelpQuestions);
 deleteHelpQuestionButton.addEventListener("click", deleteSelectedHelpQuestion);
 addRequestedLineButton.addEventListener("click", addRequestedLine);
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && isLayerEditorOpen) {
+  if (event.key === "Escape" && !dashboardSummaryModal.classList.contains("hidden")) {
+    closeDashboardSummary();
+  } else if (event.key === "Escape" && isLayerEditorOpen) {
     closeOfficialLayerEditor();
   } else if (event.key === "Escape" && !confirmDeleteModal.classList.contains("hidden")) {
     closeDeleteConfirmation();
@@ -5079,8 +5048,17 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-loadRouteHistorySelection();
-refreshDashboard();
-updateTrashCount();
-loadPendingHelpCount();
-syncRefreshTimer();
+async function initializeProtectedPanel() {
+  await AppAccess.requireAccess();
+  AppAccess.applyPermissions();
+  if (AppAccess.can("editar") || AppAccess.can("excluir")) await ensureLoggedPlanningOperator();
+  loadRouteHistorySelection();
+  await refreshDashboard();
+  updateTrashCount();
+  loadPendingHelpCount();
+  syncRefreshTimer();
+}
+
+initializeProtectedPanel().catch((error) => {
+  console.error("Falha ao iniciar o painel protegido:", error);
+});

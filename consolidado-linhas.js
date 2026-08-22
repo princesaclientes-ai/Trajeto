@@ -3,7 +3,7 @@ const SUPABASE_ANON_KEY = "sb_publishable_gP0qRTSoUiO8-yMq8dgWEQ_1E3MTt7p";
 const ROUTER_URL = "https://router.project-osrm.org/route/v1/driving";
 const WALKING_ROUTER_URL = "https://routing.openstreetmap.de/routed-foot/route/v1/driving";
 const COLORS = ["#116149", "#1264c8", "#d97706", "#7c3aed", "#be123c", "#0e7490", "#4d7c0f", "#c2410c"];
-const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const db = window.appSupabaseClient || supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const clientFilter = document.querySelector("#clientFilter");
 const directionFilter = document.querySelector("#directionFilter");
@@ -11,6 +11,9 @@ const overviewSearch = document.querySelector("#overviewSearch");
 const overviewSearchButton = document.querySelector("#overviewSearchButton");
 const overviewRmcOnly = document.querySelector("#overviewRmcOnly");
 const pageStatus = document.querySelector("#pageStatus");
+const pageStatusToast = document.querySelector("#pageStatusToast");
+const pageStatusToastText = document.querySelector("#pageStatusToastText");
+const closePageStatusToast = document.querySelector("#closePageStatusToast");
 const overviewAccessInfo = document.querySelector("#overviewAccessInfo");
 const visibleLineCount = document.querySelector("#visibleLineCount");
 const lineList = document.querySelector("#lineList");
@@ -40,11 +43,8 @@ const saveConfirmationModal = document.querySelector("#saveConfirmationModal");
 const saveConfirmationBackdrop = document.querySelector("#saveConfirmationBackdrop");
 const saveConfirmationForm = document.querySelector("#saveConfirmationForm");
 const saveConfirmationDescription = document.querySelector("#saveConfirmationDescription");
-const saveOperatorSelect = document.querySelector("#saveOperatorSelect");
+const saveLoggedOperator = document.querySelector("#saveLoggedOperator");
 const saveReasonInput = document.querySelector("#saveReasonInput");
-const newSaveOperatorFields = document.querySelector("#newSaveOperatorFields");
-const newSaveOperatorName = document.querySelector("#newSaveOperatorName");
-const addSaveOperatorButton = document.querySelector("#addSaveOperatorButton");
 const cancelSaveConfirmationButton = document.querySelector("#cancelSaveConfirmationButton");
 const confirmSaveButton = document.querySelector("#confirmSaveButton");
 const saveConfirmationStatus = document.querySelector("#saveConfirmationStatus");
@@ -77,38 +77,83 @@ let overviewSearchResult = null;
 let overviewAccessGeometry = [];
 let overviewAccessDistanceMeters = 0;
 let overviewAccessSelection = null;
-const overviewEditingEnabled = true;
+let overviewEditingEnabled = false;
 let overviewLoadGeneration = 0;
 let overviewNeedsFit = true;
-let planningOperators = [];
+let loggedPlanningOperator = null;
 let pendingSaveAction = "officialize";
 let pendingRestoreVersionId = null;
+let pageStatusToastTimer = null;
 const STUDY_ROUTE_PARAMETER = "estudo";
-const standaloneStudyRouteId = new URLSearchParams(window.location.search)
-  .get(STUDY_ROUTE_PARAMETER);
+const STUDY_SEARCH_QUERY_PARAMETER = "endereco";
+const STUDY_SEARCH_LAT_PARAMETER = "endereco_lat";
+const STUDY_SEARCH_LNG_PARAMETER = "endereco_lng";
+const STUDY_SEARCH_LABEL_PARAMETER = "endereco_nome";
+const STUDY_SEARCH_RMC_PARAMETER = "endereco_rmc";
+const pageParameters = new URLSearchParams(window.location.search);
+const standaloneStudyRouteId = pageParameters.get(STUDY_ROUTE_PARAMETER);
 if (standaloneStudyRouteId) document.body.classList.add("standalone-study");
+
+function showPageStatusToast(message) {
+  const text = String(message || "").trim();
+  const relevant = /erro|não foi|nao foi|indisponível|encontrad|copiad|permite somente|não possui|nao possui/i.test(text);
+  if (!relevant || document.body.classList.contains("standalone-study")) return;
+  window.clearTimeout(pageStatusToastTimer);
+  pageStatusToastText.textContent = text;
+  pageStatusToast.classList.toggle("error", /erro|não foi|nao foi|indisponível|não possui|nao possui/i.test(text));
+  pageStatusToast.classList.remove("hidden");
+  pageStatusToastTimer = window.setTimeout(() => pageStatusToast.classList.add("hidden"),
+    pageStatusToast.classList.contains("error") ? 8000 : 4500);
+}
+
+new MutationObserver(() => showPageStatusToast(pageStatus.textContent))
+  .observe(pageStatus, { childList: true, characterData: true, subtree: true });
+closePageStatusToast.addEventListener("click", () => {
+  window.clearTimeout(pageStatusToastTimer);
+  pageStatusToast.classList.add("hidden");
+});
 
 function openEditorInNewTab(routeId) {
   const studyUrl = new URL(window.location.href);
   studyUrl.searchParams.set(STUDY_ROUTE_PARAMETER, routeId);
+  if (overviewSearchResult) {
+    studyUrl.searchParams.set(STUDY_SEARCH_QUERY_PARAMETER, overviewSearchResult.query || "");
+    studyUrl.searchParams.set(STUDY_SEARCH_LAT_PARAMETER, String(overviewSearchResult.lat));
+    studyUrl.searchParams.set(STUDY_SEARCH_LNG_PARAMETER, String(overviewSearchResult.lng));
+    studyUrl.searchParams.set(STUDY_SEARCH_LABEL_PARAMETER, overviewSearchResult.label || "");
+    studyUrl.searchParams.set(STUDY_SEARCH_RMC_PARAMETER, overviewRmcOnly.checked ? "1" : "0");
+  }
   window.open(studyUrl.toString(), "_blank", "noopener");
 }
 
-async function loadPlanningOperators(selectedId = "") {
+function restoreStudySearchFromUrl() {
+  if (!pageParameters.has(STUDY_SEARCH_LAT_PARAMETER) ||
+      !pageParameters.has(STUDY_SEARCH_LNG_PARAMETER)) return;
+  const latitude = Number(pageParameters.get(STUDY_SEARCH_LAT_PARAMETER));
+  const longitude = Number(pageParameters.get(STUDY_SEARCH_LNG_PARAMETER));
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+  const query = pageParameters.get(STUDY_SEARCH_QUERY_PARAMETER) || `${latitude}, ${longitude}`;
+  overviewSearchResult = {
+    lat: latitude,
+    lng: longitude,
+    query,
+    label: pageParameters.get(STUDY_SEARCH_LABEL_PARAMETER) || query,
+  };
+  overviewSearch.value = query;
+  overviewRmcOnly.checked = pageParameters.get(STUDY_SEARCH_RMC_PARAMETER) !== "0";
+}
+
+async function ensureLoggedPlanningOperator() {
+  if (loggedPlanningOperator) return loggedPlanningOperator;
+  const profile = window.appAccess?.profile;
+  const nome = String(profile?.nome || profile?.usuario || "Usuário autenticado").trim();
   const { data, error } = await db.from("operadores_planejamento")
+    .upsert({ nome, ativo: true }, { onConflict: "nome" })
     .select("id, nome")
-    .eq("ativo", true)
-    .order("nome");
+    .single();
   if (error) throw error;
-  planningOperators = data || [];
-  saveOperatorSelect.innerHTML = '<option value="">Selecione o operador</option>';
-  planningOperators.forEach((operator) => {
-    const option = document.createElement("option");
-    option.value = operator.id;
-    option.textContent = operator.nome;
-    option.selected = String(operator.id) === String(selectedId);
-    saveOperatorSelect.appendChild(option);
-  });
+  loggedPlanningOperator = data;
+  return data;
 }
 
 async function openSaveConfirmation(action = "officialize", restoreVersionId = null) {
@@ -116,59 +161,31 @@ async function openSaveConfirmation(action = "officialize", restoreVersionId = n
   pendingSaveAction = action;
   pendingRestoreVersionId = restoreVersionId;
   saveReasonInput.value = "";
-  newSaveOperatorName.value = "";
-  newSaveOperatorFields.classList.add("hidden");
-  saveConfirmationStatus.textContent = "Carregando operadores...";
+  saveConfirmationStatus.textContent = "Identificando usuário logado...";
   saveConfirmationDescription.textContent = action === "restore"
     ? `Restaurar uma versão da linha ${editorRoute.nome_linha} como nova versão oficial.`
     : `Salvar as alterações da linha ${editorRoute.nome_linha} como nova versão oficial.`;
   saveConfirmationModal.classList.remove("hidden");
   try {
-    await loadPlanningOperators();
-    saveConfirmationStatus.textContent = planningOperators.length
-      ? "Selecione o responsável e informe a justificativa."
-      : "Nenhum operador cadastrado. Pressione F9 para cadastrar.";
-    setTimeout(() => saveOperatorSelect.focus(), 0);
+    const operator = await ensureLoggedPlanningOperator();
+    versionOperator.value = operator.nome;
+    versionOperator.dataset.operatorId = operator.id;
+    saveLoggedOperator.textContent = operator.nome;
+    saveConfirmationStatus.textContent = "Informe somente o motivo ou a justificativa.";
+    setTimeout(() => saveReasonInput.focus(), 0);
   } catch (error) {
-    saveConfirmationStatus.textContent = `Erro ao carregar operadores: ${error.message}`;
+    saveConfirmationStatus.textContent = `Erro ao identificar usuário logado: ${error.message}`;
   }
 }
 
 function closeSaveConfirmation() {
   saveConfirmationModal.classList.add("hidden");
-  newSaveOperatorFields.classList.add("hidden");
   pendingRestoreVersionId = null;
   confirmSaveButton.disabled = false;
 }
 
-async function addPlanningOperatorFromStudy() {
-  const nome = newSaveOperatorName.value.trim();
-  if (!nome) {
-    newSaveOperatorName.focus();
-    return;
-  }
-  addSaveOperatorButton.disabled = true;
-  saveConfirmationStatus.textContent = "Cadastrando operador...";
-  try {
-    const { data, error } = await db.from("operadores_planejamento")
-      .upsert({ nome, ativo: true }, { onConflict: "nome" })
-      .select("id, nome")
-      .single();
-    if (error) throw error;
-    await loadPlanningOperators(data.id);
-    newSaveOperatorFields.classList.add("hidden");
-    saveConfirmationStatus.textContent = "Operador adicionado e selecionado.";
-    saveReasonInput.focus();
-  } catch (error) {
-    saveConfirmationStatus.textContent = `Erro ao cadastrar operador: ${error.message}`;
-  } finally {
-    addSaveOperatorButton.disabled = false;
-  }
-}
-
 async function recordChangeInPanelHistory(action, versionNumber = null) {
-  const operatorId = versionOperator.dataset.operatorId;
-  const operator = planningOperators.find((item) => String(item.id) === String(operatorId));
+  const operator = await ensureLoggedPlanningOperator();
   if (!editorRoute || !operator) throw new Error("operador responsável não identificado");
   const actionLabel = action === "restore" ? "Restauração de versão" : "Alteração oficializada";
   const versionText = versionNumber && versionNumber !== "-" ? ` Versão ${versionNumber}.` : "";
@@ -354,6 +371,67 @@ function buildGeocodingUrl(query, restrictToRmc) {
   return url.toString();
 }
 
+function buildArcGisGeocodingUrl(query, restrictToRmc) {
+  const url = new URL(
+    "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates"
+  );
+  url.searchParams.set("SingleLine", query);
+  url.searchParams.set("f", "json");
+  url.searchParams.set("outFields", "Match_addr");
+  url.searchParams.set("countryCode", "BRA");
+  url.searchParams.set("maxLocations", "1");
+  if (restrictToRmc) {
+    url.searchParams.set("searchExtent", "-47.55,-23.35,-46.70,-22.55");
+  }
+  return url.toString();
+}
+
+async function geocodeAddress(query, restrictToRmc) {
+  let primaryUnavailable = false;
+  try {
+    const response = await fetch(buildGeocodingUrl(query, restrictToRmc), {
+      headers: { "Accept-Language": "pt-BR" },
+    });
+    if (response.ok) {
+      const result = (await response.json())?.[0];
+      if (result) {
+        return {
+          latitude: Number(result.lat),
+          longitude: Number(result.lon),
+          label: result.display_name || query,
+        };
+      }
+    } else {
+      primaryUnavailable = true;
+    }
+  } catch (_error) {
+    primaryUnavailable = true;
+  }
+
+  try {
+    const response = await fetch(buildArcGisGeocodingUrl(query, restrictToRmc), {
+      headers: { "Accept-Language": "pt-BR" },
+    });
+    if (!response.ok) throw new Error("serviço de busca indisponível");
+    const candidate = (await response.json())?.candidates?.[0];
+    const latitude = Number(candidate?.location?.y);
+    const longitude = Number(candidate?.location?.x);
+    if (!candidate || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      throw new Error("endereço não encontrado");
+    }
+    return {
+      latitude,
+      longitude,
+      label: candidate.address || query,
+    };
+  } catch (error) {
+    if (error.message === "endereço não encontrado") throw error;
+    throw new Error(primaryUnavailable
+      ? "serviços de busca indisponíveis"
+      : "endereço não encontrado");
+  }
+}
+
 function orderedPoints(points) {
   return [...points]
     .filter((point) => Number.isFinite(Number(point.latitude)) && Number.isFinite(Number(point.longitude)))
@@ -377,7 +455,9 @@ function overviewRoutingControls(points, maximum = 100) {
 }
 
 async function prepareOverviewGeometries(loadGeneration) {
-  const pendingRoutes = clientRoutes.filter((route) => routeGeometry(route).length < 2);
+  const pendingRoutes = clientRoutes.filter((route) =>
+    orderedPoints(pointsByRoute.get(String(route.id)) || []).length >= 2
+  );
   let nextIndex = 0;
   let lastProgressDraw = 0;
 
@@ -385,7 +465,8 @@ async function prepareOverviewGeometries(loadGeneration) {
     while (nextIndex < pendingRoutes.length) {
       if (loadGeneration !== overviewLoadGeneration) return;
       const route = pendingRoutes[nextIndex++];
-      const controls = overviewRoutingControls(pointsByRoute.get(String(route.id)) || []);
+      const controls = orderedPoints(pointsByRoute.get(String(route.id)) || [])
+        .map((point) => ({ lat: Number(point.latitude), lng: Number(point.longitude) }));
       if (controls.length < 2) continue;
       try {
         const geometry = await routeThrough(controls);
@@ -402,7 +483,7 @@ async function prepareOverviewGeometries(loadGeneration) {
     }
   }
 
-  await Promise.all(Array.from({ length: Math.min(3, pendingRoutes.length) }, () => worker()));
+  await Promise.all(Array.from({ length: Math.min(2, pendingRoutes.length) }, () => worker()));
   if (loadGeneration === overviewLoadGeneration) drawOverview();
 }
 
@@ -477,7 +558,11 @@ async function loadRoutes() {
     .order("created_at", { ascending: false })
     .limit(1000);
   if (error) throw error;
-  routes = data || [];
+  const access = window.appAccess;
+  const allowedCompanies = new Set((access?.companies || []).map(normalizedText));
+  routes = (data || []).filter((route) =>
+    access?.allCompanies || allowedCompanies.has(normalizedText(route.cliente))
+  );
   const clients = [...new Set(routes.map((route) => route.cliente).filter(Boolean))].sort(naturalCompare);
   clientFilter.innerHTML = '<option value="">Selecione um cliente</option>' +
     clients.map((client) => `<option value="${escapeHtml(client)}">${escapeHtml(client)}</option>`).join("");
@@ -526,6 +611,9 @@ async function selectClient() {
     });
     renderLineList();
     drawOverview();
+    pageStatus.textContent = "Ajustando os trajetos pelas ruas com todos os pontos capturados...";
+    await prepareOverviewGeometries(loadGeneration);
+    if (loadGeneration !== overviewLoadGeneration) return;
     pageStatus.textContent = `${clientRoutes.length} linhas exibidas para ${client}.`;
     if (overviewSearchResult) calculateOverviewAccessRoute();
   } catch (error) {
@@ -547,16 +635,10 @@ async function searchOverviewLocation() {
       [latitude, longitude] = coordinates;
       label = `${latitude}, ${longitude}`;
     } else {
-      const response = await fetch(
-        buildGeocodingUrl(query, overviewRmcOnly.checked),
-        { headers: { "Accept-Language": "pt-BR" } }
-      );
-      if (!response.ok) throw new Error("serviço de busca indisponível");
-      const result = (await response.json())?.[0];
-      if (!result) throw new Error("endereço não encontrado");
-      latitude = Number(result.lat);
-      longitude = Number(result.lon);
-      label = result.display_name || query;
+      const result = await geocodeAddress(query, overviewRmcOnly.checked);
+      latitude = result.latitude;
+      longitude = result.longitude;
+      label = result.label;
     }
     if (overviewSearchMarker) overviewMap.removeLayer(overviewSearchMarker);
     overviewSearchMarker = L.marker([latitude, longitude], { title: label })
@@ -590,7 +672,7 @@ function renderLineList() {
         <span><strong>${escapeHtml(route.nome_linha || "Linha sem nome")}</strong>
         <small>${escapeHtml(route.sentido || "-")} · ${count} pontos · ${escapeHtml(route.status || "-")}</small></span>
       </label>
-      <button class="button secondary" data-edit="${escapeHtml(route.id)}" type="button"
+      <button class="button secondary" data-edit="${escapeHtml(route.id)}" data-permission="editar" type="button"
         ${overviewEditingEnabled ? "" : "disabled"}>
         Novo estudo
       </button>
@@ -602,6 +684,7 @@ function renderLineList() {
   lineList.querySelectorAll("[data-edit]").forEach((button) =>
     button.addEventListener("click", () => openEditorInNewTab(button.dataset.edit))
   );
+  AppAccess.applyPermissions(lineList);
 }
 
 function drawOverview() {
@@ -616,14 +699,16 @@ function drawOverview() {
     const points = orderedPoints(pointsByRoute.get(String(route.id)) || []);
     const officialGeometry = routeGeometry(route);
     const routedGeometry = overviewGeometryByRoute.get(String(route.id)) || [];
-    const provisionalGeometry = points.map((point) => [
+    const capturedGeometry = points.map((point) => [
       Number(point.latitude), Number(point.longitude),
     ]);
-    const geometry = officialGeometry.length > 1
-      ? officialGeometry
-      : routedGeometry.length > 1
-        ? routedGeometry
-        : provisionalGeometry;
+    const geometry = routedGeometry.length > 1
+      ? routedGeometry
+      : capturedGeometry.length > 2
+        ? capturedGeometry
+        : officialGeometry.length > 1
+        ? officialGeometry
+        : capturedGeometry;
     const line = geometry.length > 1 ? geometry : [];
     if (line.length > 1) {
       const routeLine = L.polyline(line, {
@@ -954,18 +1039,45 @@ async function routeThrough(controls) {
   const complete = [];
   let totalDurationSeconds = 0;
   const segmentDurations = [];
-  for (let start = 0; start < controls.length - 1; start += 20) {
-    const chunk = controls.slice(start, Math.min(start + 21, controls.length));
+
+  async function fetchRoutedChunk(chunk) {
     const coordinates = chunk.map((item) => `${item.lng},${item.lat}`).join(";");
-    const response = await fetch(`${ROUTER_URL}/${coordinates}?overview=full&geometries=geojson&annotations=duration`);
-    if (!response.ok) throw new Error("serviço de roteirização indisponível");
+    const response = await fetch(`${ROUTER_URL}/${coordinates}?overview=full&geometries=geojson&annotations=duration&continue_straight=false`);
+    if (!response.ok) throw new Error(`serviço de roteirização indisponível (${response.status})`);
     const payload = await response.json();
     const routed = payload.routes?.[0];
-    const segment = routed?.geometry?.coordinates?.map(([lng, lat]) => [lat, lng]) || [];
-    totalDurationSeconds += Number(routed?.duration) || 0;
-    segmentDurations.push(...(routed?.legs || []).flatMap((leg) => leg?.annotation?.duration || []));
-    if (complete.length && segment.length) segment.shift();
-    complete.push(...segment);
+    const geometry = routed?.geometry?.coordinates?.map(([lng, lat]) => [lat, lng]) || [];
+    if (geometry.length < 2) throw new Error("trecho viário não encontrado");
+    return { geometry, duration: Number(routed?.duration) || 0, durations: (routed?.legs || []).flatMap((leg) => leg?.annotation?.duration || []) };
+  }
+
+  for (let start = 0; start < controls.length - 1; start += 20) {
+    const chunk = controls.slice(start, Math.min(start + 21, controls.length));
+    try {
+      const routedChunk = await fetchRoutedChunk(chunk);
+      const segment = routedChunk.geometry;
+      totalDurationSeconds += routedChunk.duration;
+      segmentDurations.push(...routedChunk.durations);
+      if (complete.length) segment.shift();
+      complete.push(...segment);
+    } catch (chunkError) {
+      console.warn("Bloco de rota não calculado; tentando trechos consecutivos.", chunkError);
+      for (let index = 0; index < chunk.length - 1; index += 1) {
+        const pair = [chunk[index], chunk[index + 1]];
+        let segment;
+        try {
+          const routedPair = await fetchRoutedChunk(pair);
+          segment = routedPair.geometry;
+          totalDurationSeconds += routedPair.duration;
+          segmentDurations.push(...routedPair.durations);
+        } catch (pairError) {
+          console.warn("Trecho sem correspondência viária; mantendo somente este intervalo pelo GPS.", pairError);
+          segment = pair.map((item) => [item.lat, item.lng]);
+        }
+        if (complete.length) segment.shift();
+        complete.push(...segment);
+      }
+    }
   }
   if (complete.length < 2) throw new Error("não foi possível calcular a rota pelas ruas");
   Object.defineProperty(complete, "routingDurationSeconds", {
@@ -1007,6 +1119,7 @@ function markerIcon(className, label = null) {
 function deletePopup(onDelete, label) {
   const button = document.createElement("button");
   button.type = "button";
+  button.dataset.permission = "excluir";
   button.className = "popup-danger";
   button.textContent = label;
   button.addEventListener("click", onDelete);
@@ -1337,8 +1450,8 @@ function closeEditor(force = false) {
   if (standaloneStudyRouteId) {
     window.close();
     if (!window.closed) {
-      const overviewUrl = new URL(window.location.href);
-      overviewUrl.searchParams.delete(STUDY_ROUTE_PARAMETER);
+      const overviewUrl = new URL("consolidado-linhas.html", window.location.href);
+      overviewUrl.search = "";
       window.location.replace(overviewUrl.toString());
     }
   }
@@ -1351,12 +1464,13 @@ async function openStandaloneStudy(routeId) {
     return;
   }
   document.title = `${route.nome_linha || "Linha"} · Edição independente`;
-  closeEditorButton.textContent = "Fechar guia";
+  closeEditorButton.textContent = "Voltar ao consolidado";
   routeEditor.setAttribute("role", "main");
   routeEditor.removeAttribute("aria-modal");
   clientRoutes = [route];
   const points = await fetchAllPoints([route.id]);
   pointsByRoute = new Map([[String(route.id), points]]);
+  restoreStudySearchFromUrl();
   await openEditor(route.id);
 }
 
@@ -1898,13 +2012,10 @@ async function searchLocation() {
     if (coordinates.length === 2 && coordinates.every(Number.isFinite)) {
       [latitude, longitude] = coordinates;
     } else {
-      const response = await fetch(buildGeocodingUrl(query, editorRmcOnly.checked), {
-        headers: { "Accept-Language": "pt-BR" },
-      });
-      const result = (await response.json())?.[0];
-      if (!result) throw new Error("local não encontrado");
-      latitude = Number(result.lat); longitude = Number(result.lon);
-      label = result.display_name || query;
+      const result = await geocodeAddress(query, editorRmcOnly.checked);
+      latitude = result.latitude;
+      longitude = result.longitude;
+      label = result.label;
     }
     showEditorSearchResult(latitude, longitude, label);
     searchMarker.openPopup();
@@ -1936,16 +2047,16 @@ routeEditor.querySelector(".editor-backdrop").addEventListener("click", () => cl
 officializeButton.addEventListener("click", () => openSaveConfirmation("officialize"));
 cancelSaveConfirmationButton.addEventListener("click", closeSaveConfirmation);
 saveConfirmationBackdrop.addEventListener("click", closeSaveConfirmation);
-addSaveOperatorButton.addEventListener("click", addPlanningOperatorFromStudy);
 saveConfirmationForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const operator = planningOperators.find((item) => String(item.id) === saveOperatorSelect.value);
-  const reason = saveReasonInput.value.trim();
-  if (!operator) {
-    saveConfirmationStatus.textContent = "Selecione o operador responsável.";
-    saveOperatorSelect.focus();
+  let operator;
+  try {
+    operator = await ensureLoggedPlanningOperator();
+  } catch (error) {
+    saveConfirmationStatus.textContent = `Erro ao identificar usuário logado: ${error.message}`;
     return;
   }
+  const reason = saveReasonInput.value.trim();
   if (!reason) {
     saveConfirmationStatus.textContent = "Informe o motivo ou a justificativa.";
     saveReasonInput.focus();
@@ -1981,12 +2092,6 @@ averageSpeed.addEventListener("change", () => {
 });
 referenceTime.addEventListener("change", updateReferenceTime);
 document.addEventListener("keydown", (event) => {
-  if (event.key === "F9" && !saveConfirmationModal.classList.contains("hidden")) {
-    event.preventDefault();
-    newSaveOperatorFields.classList.remove("hidden");
-    setTimeout(() => newSaveOperatorName.focus(), 0);
-    return;
-  }
   if (event.key === "Escape" && !saveConfirmationModal.classList.contains("hidden")) {
     closeSaveConfirmation();
     return;
@@ -1995,10 +2100,15 @@ document.addEventListener("keydown", (event) => {
 });
 
 async function initializePage() {
+  await AppAccess.requireAccess();
+  overviewEditingEnabled = AppAccess.can("editar");
   ensureMaps();
   await loadRoutes();
-  if (standaloneStudyRouteId) {
+  if (standaloneStudyRouteId && overviewEditingEnabled) {
     await openStandaloneStudy(standaloneStudyRouteId);
+  } else if (standaloneStudyRouteId) {
+    history.replaceState({}, "", location.pathname);
+    pageStatus.textContent = "Seu perfil permite somente pesquisa e visualização.";
   }
 }
 

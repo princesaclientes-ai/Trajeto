@@ -1,0 +1,76 @@
+.section-eyebrow {
+  margin: 0 0 4px;
+  color: #00a69c;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+.database-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+.database-usage-grid article {
+  display: grid;
+  gap: 9px;
+  padding: 16px;
+  border: 1px solid #d8dfed;
+  border-top: 3px solid #00a69c;
+  border-radius: 10px;
+  background: #f8faff;
+}
+.database-usage-grid span { color: #68728b; font-size: 13px; font-weight: 700; }
+.database-usage-grid strong { color: #22358e; font-size: 22px; }
+.database-usage-status { margin: 12px 0 0; color: #68728b; font-size: 13px; }
+@media (max-width: 600px) { .database-usage-grid { grid-template-columns: 1fr; } }
+
+/* Cabeçalho no mesmo padrão das demais telas autenticadas. */
+.admin-header {
+  min-height: 66px;
+  padding: 8px 16px;
+  justify-content: space-between;
+  background: #121a3f;
+  box-shadow: 0 5px 18px #0f183e2e;
+}
+.admin-header .brand-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.admin-header .admin-logo { display: block; width: 104px; padding: 4px 7px; border-radius: 6px; background: #fff; }
+.admin-header .admin-brand > div { min-width: 0; }
+.admin-header h1 { color: #fff; font-size: 1.2rem; line-height: 1.08; }
+.admin-header p { margin-bottom: 3px; color: #4fd6cc; font-size: .65rem; }
+
+.header-database-usage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 6px 8px 6px 14px;
+  border: 1px solid #ffffff2b;
+  border-radius: 10px;
+  background: #ffffff0d;
+  color: #fff;
+}
+.header-database-title,
+.header-database-metric { display: grid; gap: 2px; }
+.header-database-title span,
+.header-database-metric span { color: #9eabc9; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.header-database-title strong { color: #4fd6cc; font-size: 13px; }
+.header-database-metric strong { font-size: 13px; white-space: nowrap; }
+.header-database-usage button { padding: 7px 10px; border-color: #ffffff38; background: #ffffff12; font-size: 11px; }
+.header-database-status { position: absolute; right: 8px; bottom: -15px; display: none; }
+
+/* O histórico usa as duas colunas do gerenciador. */
+main > .logs-panel { grid-column: 1 / -1; width: 100%; }
+.logs-panel .table-wrap { width: 100%; }
+.logs-panel table { width: 100%; table-layout: auto; }
+
+@media (max-width: 650px) {
+  .admin-header { min-height: 58px; padding: 7px 10px; }
+  .admin-header .admin-logo { width: 86px; }
+  .admin-header h1 { overflow: hidden; font-size: 1rem; text-overflow: ellipsis; white-space: nowrap; }
+  .admin-header { flex-wrap: wrap; }
+  .header-database-usage { width: 100%; justify-content: space-between; }
+  .header-database-title { display: none; }
+}
