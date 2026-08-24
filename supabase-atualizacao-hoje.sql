@@ -292,7 +292,7 @@ drop policy if exists "Permitir criar pontos anonimamente"
 create policy "Permitir criar pontos anonimamente"
 on public.trajeto_pontos
 for insert
-to anon
+to anon, authenticated
 with check (
   exists (
     select 1

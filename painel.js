@@ -757,20 +757,47 @@ function getJsonPointName(route, point, manualIndex, manualTotal) {
   return `Ponto ${getExportName(route)} - ${getPointTime(point) || point.ordem_ponto}`;
 }
 
+function orientGeometryByCapturedRoute(geometry, trackPoints) {
+  const coordinates = geometry
+    .map((coordinate) => Array.isArray(coordinate)
+      ? [Number(coordinate[0]), Number(coordinate[1])]
+      : [Number(coordinate.latitude), Number(coordinate.longitude)])
+    .filter(([latitude, longitude]) => Number.isFinite(latitude) && Number.isFinite(longitude));
+  if (coordinates.length < 2 || trackPoints.length < 2) return coordinates;
+
+  const capturedStart = [
+    Number(trackPoints[0].latitude),
+    Number(trackPoints[0].longitude),
+  ];
+  const capturedEnd = [
+    Number(trackPoints[trackPoints.length - 1].latitude),
+    Number(trackPoints[trackPoints.length - 1].longitude),
+  ];
+  const normalDistance =
+    distanceMetersBetweenCoordinates(coordinates[0], capturedStart) +
+    distanceMetersBetweenCoordinates(coordinates[coordinates.length - 1], capturedEnd);
+  const reversedDistance =
+    distanceMetersBetweenCoordinates(coordinates[0], capturedEnd) +
+    distanceMetersBetweenCoordinates(coordinates[coordinates.length - 1], capturedStart);
+
+  return reversedDistance < normalDistance ? coordinates.reverse() : coordinates;
+}
+
 function buildJsonExport(route, points, routedLatLngs = null) {
   const trackPoints = getRouteTrackPoints(points);
   const stopPoints = getRouteStopPoints(points);
   const officialGeometry = getOfficialRouteGeometry(route);
   const exportGeometry = routedLatLngs?.length ? routedLatLngs : officialGeometry;
-  // A camada oficial passa pelos pontos manuais. No JSON esses pontos ja sao
-  // enviados separadamente em `pontos`; mantê-los também nas coordenadas da
-  // rota faz o aplicativo consumidor importá-los duas vezes.
-  const routeCoordinates = (exportGeometry.length
-    ? exportGeometry.map(([latitude, longitude]) => ({ latitude, longitude }))
-    : trackPoints
-  ).filter((coordinate) => !stopPoints.some((stopPoint) =>
-    arePointsAtSameLocation(coordinate, stopPoint, 2)
-  ));
+  const orientedGeometry = orientGeometryByCapturedRoute(
+    exportGeometry.length ? exportGeometry : trackPoints,
+    trackPoints
+  );
+  // A geometria precisa manter as duas extremidades reais. Os pontos manuais
+  // continuam separados em `pontos`, mas não são removidos da linha do trajeto.
+  const routeCoordinates = orientedGeometry.map(([latitude, longitude]) => ({
+    latitude,
+    longitude,
+  }));
   const manualIndexByPoint = new Map(
     stopPoints.map((point, index) => [point, index])
   );
@@ -2889,13 +2916,15 @@ async function insertTrackPointAt(latLng) {
   } catch (error) {
     const message = error?.message || "";
     const needsSql =
+      error?.status === 403 ||
       error?.code === "42501" ||
+      message.includes("403") ||
       message.toLowerCase().includes("row-level security") ||
       message.toLowerCase().includes("violates row-level security");
 
     setMessage(
       needsSql
-        ? "Erro ao inserir ponto: execute no Supabase a politica de insert para trajeto_pontos."
+        ? "A inclusão foi bloqueada pelo Supabase (403). Execute a correção da política de pontos para anon e authenticated."
         : `Erro ao inserir ponto: ${message}`,
       "error"
     );
