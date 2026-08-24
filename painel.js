@@ -792,9 +792,11 @@ function buildJsonExport(route, points, routedLatLngs = null) {
     exportGeometry.length ? exportGeometry : trackPoints,
     trackPoints
   );
-  // A geometria precisa manter as duas extremidades reais. Os pontos manuais
-  // continuam separados em `pontos`, mas não são removidos da linha do trajeto.
-  const routeCoordinates = orientedGeometry.map(([latitude, longitude]) => ({
+  // O mapa e o banco mantêm a sequência real. O importador externo, porém,
+  // interpreta `trajeto.coordenadas` do último item para o primeiro. Invertemos
+  // somente a serialização da linha no JSON; pontos, nomes e horários continuam
+  // na ordem operacional correta.
+  const routeCoordinates = [...orientedGeometry].reverse().map(([latitude, longitude]) => ({
     latitude,
     longitude,
   }));
@@ -822,7 +824,9 @@ function buildJsonExport(route, points, routedLatLngs = null) {
           stopPoints.length
         ),
         horario: getPointTime(point),
-        descricao: getPointTypeLabel(point.tipo_ponto),
+        // A ordem atual prevalece sobre o tipo histórico salvo no banco. Isso
+        // permite inserir/mover um ponto antes do antigo `primeiro`.
+        descricao: index === 0 ? "Primeiro" : "Ponto",
         lat: point.latitude,
         lon: point.longitude,
       })),
@@ -1385,10 +1389,11 @@ async function exportSelectedRoute(format) {
     exportJsonButton.disabled = true;
     setMessage("Calculando o trajeto pelas ruas para gerar o JSON...", "");
     try {
-      const officialGeometry = getOfficialRouteGeometry(route);
-      const routedLatLngs = officialGeometry.length
-        ? officialGeometry
-        : await fetchRoutedLatLngs(getRoutingControlPoints(trackPoints));
+      // Recalcula sempre pela ordem atual. A camada oficial pode ter sido
+      // criada antes de um novo ponto assumir a posição inicial.
+      const routedLatLngs = await fetchRoutedLatLngs(
+        getRoutingControlPoints(trackPoints)
+      );
       if (routedLatLngs.length < 2) {
         throw new Error("nao foi possivel gerar a geometria detalhada da rota");
       }
@@ -1778,6 +1783,18 @@ async function fetchRoutedLatLngs(points) {
     }
 
     routedLatLngs.push(...chunkLatLngs);
+  }
+
+  if (routedLatLngs.length > 1 && points.length > 1) {
+    const firstCoordinate = [Number(points[0].latitude), Number(points[0].longitude)];
+    const lastPoint = points[points.length - 1];
+    const lastCoordinate = [Number(lastPoint.latitude), Number(lastPoint.longitude)];
+    if (distanceMetersBetweenCoordinates(routedLatLngs[0], firstCoordinate) > 1) {
+      routedLatLngs.unshift(firstCoordinate);
+    }
+    if (distanceMetersBetweenCoordinates(routedLatLngs[routedLatLngs.length - 1], lastCoordinate) > 1) {
+      routedLatLngs.push(lastCoordinate);
+    }
   }
 
   return routedLatLngs;
@@ -2774,6 +2791,57 @@ async function renumberExistingRoutePoints(points) {
   );
 }
 
+async function recalculateOfficialGeometryAfterPointOrder() {
+  const route = getSelectedRoute();
+  if (!route || !["trajeto", "importado"].includes(route.status)) return;
+
+  const { data, error } = await supabaseClient
+    .from("trajeto_pontos")
+    .select("id, latitude, longitude, data_hora_registro, ordem_ponto, tipo_ponto, precisao")
+    .eq("trajeto_id", route.id)
+    .order("ordem_ponto", { ascending: true });
+  if (error) throw error;
+
+  const orderedPoints = getOrderedValidPoints(data || []);
+  const controls = getRoutingControlPoints(orderedPoints);
+  if (controls.length < 2) return;
+  const geometry = await fetchRoutedLatLngs(controls);
+  if (geometry.length < 2) throw new Error("não foi possível recalcular a linha pelas ruas");
+
+  // Mantém as extremidades visuais exatamente sobre o primeiro e o último
+  // ponto definidos pelo índice, mesmo quando o roteador ajusta à rua próxima.
+  const first = orderedPoints[0];
+  const last = orderedPoints[orderedPoints.length - 1];
+  const firstCoordinate = [Number(first.latitude), Number(first.longitude)];
+  const lastCoordinate = [Number(last.latitude), Number(last.longitude)];
+  if (distanceMetersBetweenCoordinates(geometry[0], firstCoordinate) > 1) {
+    geometry.unshift(firstCoordinate);
+  }
+  if (distanceMetersBetweenCoordinates(geometry[geometry.length - 1], lastCoordinate) > 1) {
+    geometry.push(lastCoordinate);
+  }
+
+  const updatedNodes = Array.isArray(route.nos_validacao)
+    ? route.nos_validacao.map((node) => ({
+        ...node,
+        index: findClosestIndexInGeometry(
+          { lat: Number(node.lat), lng: Number(node.lng) },
+          geometry
+        ),
+      }))
+    : [];
+  const { error: saveError } = await supabaseClient.rpc("save_official_route_geometry", {
+    p_trajeto_id: route.id,
+    p_geometry: geometry,
+    p_nodes: updatedNodes,
+  });
+  if (saveError) throw saveError;
+  route.geometria_validada = geometry;
+  route.nos_validacao = updatedNodes;
+  if (route.status === "importado") route.status = "trajeto";
+  routedLineCache.clear();
+}
+
 async function movePointToOrder(point, targetOrder) {
   if (!point || savingPointId) {
     return false;
@@ -2811,6 +2879,8 @@ async function movePointToOrder(point, targetOrder) {
 
   try {
     await renumberExistingRoutePoints(nextOrder);
+    setMessage("Recalculando a linha pela nova sequência...", "");
+    await recalculateOfficialGeometryAfterPointOrder();
     lastPointOrderSnapshot = {
       routeId: selectedRouteId,
       points: previousOrder,
@@ -2845,6 +2915,7 @@ async function undoLastPointOrderChange() {
 
   try {
     await renumberExistingRoutePoints(snapshot.points);
+    await recalculateOfficialGeometryAfterPointOrder();
     lastPointOrderSnapshot = null;
     setMessage("Sequencia anterior restaurada.", "success");
     await loadSelectedRouteDetails();
@@ -2904,6 +2975,8 @@ async function insertTrackPointAt(latLng) {
     }
 
     await renumberRoutePointsWithInsertedPoint(insertedPoint.id, newOrder);
+    setMessage(`Recalculando a linha após inserir o ${pointLabel}...`, "");
+    await recalculateOfficialGeometryAfterPointOrder();
 
     setMessage(
       pointType === "no"
@@ -3237,9 +3310,24 @@ function renderRouteMap(points) {
   const routingPoints = getRoutingControlPoints(validPoints);
   const routingSignature = getPointSignature(routingPoints);
   const selectedRoute = getSelectedRoute();
-  const officialGeometry = ["trajeto", "importado"].includes(selectedRoute?.status)
+  const savedOfficialGeometry = ["trajeto", "importado"].includes(selectedRoute?.status)
     ? getOfficialRouteGeometry(selectedRoute)
     : [];
+  const officialMatchesCurrentEndpoints =
+    savedOfficialGeometry.length > 1 &&
+    routingPoints.length > 1 &&
+    distanceMetersBetweenCoordinates(
+      savedOfficialGeometry[0],
+      [Number(routingPoints[0].latitude), Number(routingPoints[0].longitude)]
+    ) <= 25 &&
+    distanceMetersBetweenCoordinates(
+      savedOfficialGeometry[savedOfficialGeometry.length - 1],
+      [
+        Number(routingPoints[routingPoints.length - 1].latitude),
+        Number(routingPoints[routingPoints.length - 1].longitude),
+      ]
+    ) <= 25;
+  const officialGeometry = officialMatchesCurrentEndpoints ? savedOfficialGeometry : [];
   const hasOfficialGeometry = officialGeometry.length > 1;
   const officialGeometrySignature = hasOfficialGeometry
     ? officialGeometry.map(([lat, lng]) => `${lat},${lng}`).join("|")
