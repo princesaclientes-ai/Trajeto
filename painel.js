@@ -74,7 +74,6 @@ const mapModalTitle = document.querySelector("#mapModalTitle");
 const mapPointSearch = document.querySelector("#mapPointSearch");
 const mapSearchButton = document.querySelector("#mapSearchButton");
 const exportJsonButton = document.querySelector("#exportJsonButton");
-const exportKmlButton = document.querySelector("#exportKmlButton");
 const exportExcelButton = document.querySelector("#exportExcelButton");
 const mapViewInputs = document.querySelectorAll('input[name="mapView"], input[name="mapViewModal"]');
 const mapInsertType = document.querySelector("#mapInsertType");
@@ -792,11 +791,8 @@ function buildJsonExport(route, points, routedLatLngs = null) {
     exportGeometry.length ? exportGeometry : trackPoints,
     trackPoints
   );
-  // O mapa e o banco mantêm a sequência real. O importador externo, porém,
-  // interpreta `trajeto.coordenadas` do último item para o primeiro. Invertemos
-  // somente a serialização da linha no JSON; pontos, nomes e horários continuam
-  // na ordem operacional correta.
-  const routeCoordinates = [...orientedGeometry].reverse().map(([latitude, longitude]) => ({
+  // Geometria e paradas seguem a mesma ordem operacional: início até o fim.
+  const routeCoordinates = orientedGeometry.map(([latitude, longitude]) => ({
     latitude,
     longitude,
   }));
@@ -836,180 +832,7 @@ function buildJsonExport(route, points, routedLatLngs = null) {
   );
 }
 
-function buildKmlExport(route, points, routedLatLngs = null) {
-  const name = escapeXml(getExportName(route));
-  const trackPoints = getRouteTrackPoints(points);
-  const stopPoints = getRouteStopPoints(points);
-  const manualIndexByPoint = new Map(stopPoints.map((point, index) => [point, index]));
-  const summary = buildExportSummary(route, points);
-  const summaryData = [
-    ["Cliente", summary.cliente],
-    ["Linha", summary.linha],
-    ["Matricula", summary.matricula],
-    ["Apelido", summary.apelido],
-    ["Garagem", summary.garagem],
-    ["Sentido", summary.sentido],
-    ["Status", summary.status],
-    ["Horario de inicio", summary.horario_inicio],
-    ["Horario de fim", summary.horario_fim],
-    ["Total de registros", summary.total_registros],
-    ["Total de trajeto", summary.total_trajeto],
-    ["Total de pontos", summary.total_pontos],
-  ];
-  const summaryDescription = summaryData
-    .map(([label, value]) => `${label}: ${value || "-"}`)
-    .join("\n");
-  const extendedData = summaryData
-    .map(
-      ([label, value]) =>
-        `        <Data name="${escapeXml(label)}"><value>${escapeXml(value)}</value></Data>`
-    )
-    .join("\n");
-  const officialGeometry = getOfficialRouteGeometry(route);
-  const exportGeometry = routedLatLngs?.length ? routedLatLngs : officialGeometry;
-  const lineCoordinates = exportGeometry.length
-    ? exportGeometry.map(([latitude, longitude]) => ({ latitude, longitude }))
-    : trackPoints;
-  const coordinates = lineCoordinates
-    .map((point) => `          ${point.longitude},${point.latitude},0`)
-    .join("\n");
-  const pointPlacemarks = stopPoints
-    .map((point, index) => {
-      const pointName = escapeXml(getJsonPointName(
-        route, point, manualIndexByPoint.get(point) ?? -1, stopPoints.length
-      ));
-      const pointTime = getPointTime(point);
-      const description = escapeXml(getPointTypeLabel(point.tipo_ponto));
 
-      return `    <Placemark>
-      <name>${pointName}</name>
-      <description>${description}</description>
-      <ExtendedData>
-        <Data name="ordem"><value>${index + 1}</value></Data>
-        <Data name="nome"><value>${pointName}</value></Data>
-        <Data name="horario"><value>${escapeXml(pointTime || "")}</value></Data>
-        <Data name="descricao"><value>${description}</value></Data>
-        <Data name="lat"><value>${escapeXml(point.latitude)}</value></Data>
-        <Data name="lon"><value>${escapeXml(point.longitude)}</value></Data>
-      </ExtendedData>
-      <styleUrl>#pontoParada</styleUrl>
-      <Point>
-        <coordinates>${point.longitude},${point.latitude},0</coordinates>
-      </Point>
-    </Placemark>`;
-    })
-    .join("\n");
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>${name}</name>
-    <Style id="trajetoLine">
-      <LineStyle>
-        <color>ffff6712</color>
-        <width>5</width>
-      </LineStyle>
-    </Style>
-    <Style id="pontoParada">
-      <IconStyle>
-        <color>ff2e344e</color>
-        <scale>1</scale>
-        <Icon>
-          <href>https://www.gstatic.com/mapspro/images/stock/503-wht-blank_maps.png</href>
-        </Icon>
-      </IconStyle>
-      <LabelStyle>
-        <scale>1</scale>
-      </LabelStyle>
-    </Style>
-    <Folder>
-      <name>Resumo</name>
-      <Placemark>
-        <name>Resumo - ${name}</name>
-        <description>${escapeXml(summaryDescription)}</description>
-        <ExtendedData>
-${extendedData}
-        </ExtendedData>
-      </Placemark>
-    </Folder>
-    <Folder>
-      <name>Trajeto</name>
-      <Placemark>
-        <name>${name}</name>
-        <ExtendedData>
-          <Data name="quantidade_pontos"><value>${lineCoordinates.length}</value></Data>
-        </ExtendedData>
-        <styleUrl>#trajetoLine</styleUrl>
-        <LineString>
-          <tessellate>1</tessellate>
-          <coordinates>
-${coordinates}
-          </coordinates>
-        </LineString>
-      </Placemark>
-    </Folder>
-    <Folder>
-      <name>Pontos</name>
-${pointPlacemarks}
-    </Folder>
-  </Document>
-</kml>`;
-}
-
-function buildOrusKmlExport(route, points, routedLatLngs = null) {
-  const name = escapeXml(getExportName(route));
-  const trackPoints = getRouteTrackPoints(points);
-  const routeCoordinates = routedLatLngs?.length
-    ? routedLatLngs.map(([latitude, longitude]) => ({ latitude, longitude }))
-    : trackPoints;
-  const coordinates = routeCoordinates
-    .map((point) => `          ${Number(point.longitude).toFixed(6)},${Number(point.latitude).toFixed(6)},0`)
-    .join("\n");
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>${name}</name>
-    <Style id="line-1267FF-5000-nodesc-normal">
-      <LineStyle>
-        <color>ffff6712</color>
-        <width>5</width>
-      </LineStyle>
-      <BalloonStyle>
-        <text><![CDATA[<h3>$[name]</h3>]]></text>
-      </BalloonStyle>
-    </Style>
-    <Style id="line-1267FF-5000-nodesc-highlight">
-      <LineStyle>
-        <color>ffff6712</color>
-        <width>7.5</width>
-      </LineStyle>
-      <BalloonStyle>
-        <text><![CDATA[<h3>$[name]</h3>]]></text>
-      </BalloonStyle>
-    </Style>
-    <StyleMap id="line-1267FF-5000-nodesc">
-      <Pair>
-        <key>normal</key>
-        <styleUrl>#line-1267FF-5000-nodesc-normal</styleUrl>
-      </Pair>
-      <Pair>
-        <key>highlight</key>
-        <styleUrl>#line-1267FF-5000-nodesc-highlight</styleUrl>
-      </Pair>
-    </StyleMap>
-    <Placemark>
-      <name>${name}</name>
-      <styleUrl>#line-1267FF-5000-nodesc</styleUrl>
-      <LineString>
-        <tessellate>1</tessellate>
-        <coordinates>
-${coordinates}
-        </coordinates>
-      </LineString>
-    </Placemark>
-  </Document>
-</kml>`;
-}
 
 function getColumnLetter(index) {
   let column = "";
@@ -1261,6 +1084,7 @@ function buildExcelExport(route, points) {
 }
 
 async function exportSelectedRoute(format) {
+  if (!["json", "excel"].includes(format)) return;
   let route = getSelectedRoute();
 
   if (!route) {
@@ -1269,7 +1093,6 @@ async function exportSelectedRoute(format) {
   }
 
   exportJsonButton.disabled = true;
-  exportKmlButton.disabled = true;
   exportExcelButton.disabled = true;
   setMessage("Atualizando a rota oficial e os pontos antes da exportação...", "");
   try {
@@ -1291,7 +1114,6 @@ async function exportSelectedRoute(format) {
   } catch (error) {
     setMessage(`Erro ao atualizar os dados para exportação: ${error.message}`, "error");
     exportJsonButton.disabled = false;
-    exportKmlButton.disabled = false;
     exportExcelButton.disabled = false;
     return;
   }
@@ -1300,100 +1122,31 @@ async function exportSelectedRoute(format) {
   if (exportPoints.length === 0) {
     setMessage("A rota oficial não possui pontos para exportar.", "error");
     exportJsonButton.disabled = true;
-    exportKmlButton.disabled = true;
     exportExcelButton.disabled = true;
     return;
   }
 
   const filename = slugify(getExportName(route));
 
-  if (format === "kml") {
-    const trackPoints = getRouteTrackPoints(exportPoints);
-    if (trackPoints.length < 2) {
-      setMessage("O trajeto precisa ter pelo menos dois registros para exportar em KML.", "error");
-      exportJsonButton.disabled = true;
-      exportKmlButton.disabled = true;
-      exportExcelButton.disabled = false;
-      return;
-    }
-    setMessage("Calculando o trajeto pelas ruas para gerar o KML...", "");
-    try {
-      const officialGeometry = getOfficialRouteGeometry(route);
-      const routedLatLngs = officialGeometry.length
-        ? officialGeometry
-        : await fetchRoutedLatLngs(getRoutingControlPoints(trackPoints));
-      if (routedLatLngs.length < 2) {
-        throw new Error("não foi possível gerar a geometria detalhada da rota");
-      }
-      downloadTextFile(
-        `${filename}-trajeto-pontos.kml`,
-        buildKmlExport(route, exportPoints, routedLatLngs),
-        "application/vnd.google-earth.kml+xml;charset=utf-8"
-      );
-      setMessage("KML gerado com as mesmas informações do JSON e trajeto ajustado pelas ruas.", "success");
-    } catch (error) {
-      setMessage(`Erro ao gerar KML pelas ruas: ${error.message}`, "error");
-    } finally {
-      const unavailable = getRouteTrackPoints(exportPoints).length < 2;
-      exportJsonButton.disabled = unavailable;
-      exportKmlButton.disabled = unavailable;
-      exportExcelButton.disabled = false;
-    }
-    return;
-  }
 
-  if (format === "orus") {
-    const trackPoints = getRouteTrackPoints(exportPoints);
-    if (trackPoints.length < 2) {
-      setMessage("O trajeto precisa ter pelo menos dois registros para exportar no formato OrUS.", "error");
-      exportJsonButton.disabled = true;
-      exportExcelButton.disabled = false;
-      return;
-    }
-    exportOrusButton.disabled = true;
-    setMessage("Calculando o trajeto pelas ruas para gerar o OrUS...", "");
-    try {
-      const officialGeometry = getOfficialRouteGeometry(route);
-      const routedLatLngs = officialGeometry.length
-        ? officialGeometry
-        : await fetchRoutedLatLngs(getRoutingControlPoints(trackPoints));
-      if (routedLatLngs.length < 2) {
-        throw new Error("nao foi possivel gerar a geometria detalhada da rota");
-      }
-      downloadTextFile(
-        `${filename}-OrUS.kml`,
-        buildOrusKmlExport(route, exportPoints, routedLatLngs),
-        "application/vnd.google-earth.kml+xml;charset=utf-8"
-      );
-      setMessage("OrUS gerado com o trajeto ajustado pelas ruas.", "success");
-    } catch (error) {
-      setMessage(`Erro ao gerar OrUS pelas ruas: ${error.message}`, "error");
-    } finally {
-      exportOrusButton.disabled = getRouteTrackPoints(exportPoints).length < 2;
-      exportJsonButton.disabled = getRouteTrackPoints(exportPoints).length < 2;
-      exportKmlButton.disabled = getRouteTrackPoints(exportPoints).length < 2;
-      exportExcelButton.disabled = false;
-    }
-    return;
-  }
 
   if (format === "json") {
     const trackPoints = getRouteTrackPoints(exportPoints);
     if (trackPoints.length < 2) {
       setMessage("O trajeto precisa ter pelo menos dois registros para exportar em JSON.", "error");
       exportJsonButton.disabled = true;
-      exportKmlButton.disabled = true;
       exportExcelButton.disabled = false;
       return;
     }
     exportJsonButton.disabled = true;
     setMessage("Calculando o trajeto pelas ruas para gerar o JSON...", "");
     try {
-      // Recalcula sempre pela ordem atual. A camada oficial pode ter sido
-      // criada antes de um novo ponto assumir a posição inicial.
-      const routedLatLngs = await fetchRoutedLatLngs(
-        getRoutingControlPoints(trackPoints)
-      );
+      // Usa a versão oficial recém-carregada, incluindo ajustes de nós e
+      // pontos salvos no painel ou no consolidado.
+      const officialGeometry = getOfficialRouteGeometry(route);
+      const routedLatLngs = officialGeometry.length
+        ? officialGeometry
+        : await fetchRoutedLatLngs(getRoutingControlPoints(trackPoints));
       if (routedLatLngs.length < 2) {
         throw new Error("nao foi possivel gerar a geometria detalhada da rota");
       }
@@ -1407,7 +1160,6 @@ async function exportSelectedRoute(format) {
       setMessage(`Erro ao gerar JSON pelas ruas: ${error.message}`, "error");
     } finally {
       exportJsonButton.disabled = getRouteTrackPoints(exportPoints).length < 2;
-      exportKmlButton.disabled = getRouteTrackPoints(exportPoints).length < 2;
       exportExcelButton.disabled = false;
     }
     return;
@@ -1419,7 +1171,6 @@ async function exportSelectedRoute(format) {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   );
   exportJsonButton.disabled = false;
-  exportKmlButton.disabled = false;
   exportExcelButton.disabled = false;
   setMessage("Excel gerado com a versão oficial mais recente da rota.", "success");
 }
@@ -1511,6 +1262,8 @@ function ensureRouteMap() {
 
   routeMap = L.map("routeMap", {
     scrollWheelZoom: true,
+    minZoom: 0,
+    maxZoom: 19,
   }).setView([-22.9, -47.05], 11);
 
   routeMap.on("dragstart zoomstart", () => {
@@ -1529,10 +1282,7 @@ function ensureRouteMap() {
     }
   });
 
-  streetMapLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "&copy; OpenStreetMap",
-  }).addTo(routeMap);
+  streetMapLayer = window.TrajetoMap.createStreetLayer().addTo(routeMap);
 
   satelliteMapLayer = L.tileLayer(
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -1823,8 +1573,8 @@ function getSavedOfficialRouteNodes(route) {
 
 function ensureLayerEditorMap() {
   if (layerEditorMap || !window.L) return layerEditorMap;
-  layerEditorMap = L.map("layerEditorMap", { scrollWheelZoom: true }).setView([-22.9, -47.05], 11);
-  const streets = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(layerEditorMap);
+  layerEditorMap = L.map("layerEditorMap", { scrollWheelZoom: true, minZoom: 0, maxZoom: 19 }).setView([-22.9, -47.05], 11);
+  const streets = window.TrajetoMap.createStreetLayer().addTo(layerEditorMap);
   const satellite = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "Tiles &copy; Esri" });
   L.control.layers({ Ruas: streets, Satélite: satellite }, null, { collapsed: false }).addTo(layerEditorMap);
   layerEditorStopsLayer = L.layerGroup().addTo(layerEditorMap);
@@ -2619,6 +2369,7 @@ async function updatePointPosition(point, latLng) {
 
   const previousLatitude = point.latitude;
   const previousLongitude = point.longitude;
+  let positionSaved = false;
 
   point.latitude = latLng.lat;
   point.longitude = latLng.lng;
@@ -2645,13 +2396,20 @@ async function updatePointPosition(point, latLng) {
       throw new Error("o Supabase nao confirmou a alteracao do ponto");
     }
 
+    positionSaved = true;
+    await recalculateOfficialGeometryAfterPointOrder();
     setMessage("Ponto ajustado e trajeto recalculado.", "success");
     await loadSelectedRouteDetails();
   } catch (error) {
-    point.latitude = previousLatitude;
-    point.longitude = previousLongitude;
-    setMessage(getPointEditErrorMessage(error, "ajustar"), "error");
-    renderRouteDetails(getSelectedRoute(), currentRoutePoints);
+    if (positionSaved) {
+      setMessage(`O ponto foi salvo, mas não foi possível atualizar o trajeto: ${error.message}`, "error");
+      await loadSelectedRouteDetails();
+    } else {
+      point.latitude = previousLatitude;
+      point.longitude = previousLongitude;
+      setMessage(getPointEditErrorMessage(error, "ajustar"), "error");
+      renderRouteDetails(getSelectedRoute(), currentRoutePoints);
+    }
   } finally {
     savingPointId = null;
     syncRefreshTimer();
@@ -4083,7 +3841,6 @@ function renderRouteDetails(route, points) {
     lastPointOrderSnapshot.routeId !== selectedRouteId ||
     Boolean(savingPointId);
   exportJsonButton.disabled = !route || points.length === 0;
-  exportKmlButton.disabled = !route || points.length === 0;
   exportExcelButton.disabled = !route || points.length === 0;
   renderRouteMap(visiblePoints);
   updatePointSelectionControls(visiblePoints);
@@ -5025,7 +4782,6 @@ mapModalBackdrop.addEventListener("click", closeMapModal);
 closeDetailButton.addEventListener("click", closeDetailModal);
 detailModalBackdrop.addEventListener("click", closeDetailModal);
 exportJsonButton.addEventListener("click", () => exportSelectedRoute("json"));
-exportKmlButton.addEventListener("click", () => exportSelectedRoute("kml"));
 exportExcelButton.addEventListener("click", () => exportSelectedRoute("excel"));
 fitMapButton.addEventListener("click", () => {
   mapUserAdjustedView = false;

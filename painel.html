@@ -2,6 +2,7 @@
 <html lang="pt-BR" class="auth-pending">
   <head>
     <meta charset="utf-8" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Painel de Pontos</title>
     <link
@@ -17,7 +18,11 @@
     ></script>
     <script src="route-options.js"></script>
     <script src="conductors.js"></script>
-    <script defer src="painel.js?v=20260821-5"></script>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" />
+    <script defer src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+    <script defer src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"></script>
+    <script defer src="mapa-base.js?v=20260911-2"></script>
+    <script defer src="painel.js?v=20260911-3"></script>
   </head>
   <body>
     <main class="dashboard-shell">
@@ -277,9 +282,6 @@
               <div class="export-actions" aria-label="Exportar trajeto">
                 <button class="export-button" id="exportJsonButton" type="button" disabled data-permission="exportar">
                   JSON
-                </button>
-                <button class="export-button" id="exportKmlButton" type="button" disabled data-permission="exportar">
-                  KML
                 </button>
                 <button class="export-button" id="exportExcelButton" type="button" disabled data-permission="exportar">
                   Excel

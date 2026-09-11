@@ -502,24 +502,20 @@ function routeGeometry(route) {
 
 function ensureMaps() {
   if (!overviewMap) {
-    overviewMap = L.map("overviewMap", { scrollWheelZoom: true }).setView([-22.9, -47.05], 11);
-    const streets = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19, attribution: "&copy; OpenStreetMap",
-    }).addTo(overviewMap);
+    overviewMap = L.map("overviewMap", { scrollWheelZoom: true, minZoom: 0, maxZoom: 19 }).setView([-22.9, -47.05], 11);
+    const streets = window.TrajetoMap.createStreetLayer().addTo(overviewMap);
     const satellite = L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{x}/{y}.png",
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       { maxZoom: 19, attribution: "Tiles &copy; Esri" }
     );
     L.control.layers({ Ruas: streets, Satelite: satellite }, null, { collapsed: false }).addTo(overviewMap);
     overviewLayer = L.layerGroup().addTo(overviewMap);
   }
   if (!editorMap) {
-    editorMap = L.map("editorMap", { scrollWheelZoom: true }).setView([-22.9, -47.05], 11);
-    const streets = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19, attribution: "&copy; OpenStreetMap",
-    }).addTo(editorMap);
+    editorMap = L.map("editorMap", { scrollWheelZoom: true, minZoom: 0, maxZoom: 19 }).setView([-22.9, -47.05], 11);
+    const streets = window.TrajetoMap.createStreetLayer().addTo(editorMap);
     const satellite = L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{x}/{y}.png",
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       { maxZoom: 19, attribution: "Tiles &copy; Esri" }
     );
     L.control.layers({ Ruas: streets, Satelite: satellite }, null, { collapsed: false }).addTo(editorMap);
