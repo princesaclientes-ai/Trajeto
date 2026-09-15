@@ -355,6 +355,7 @@ function overviewPointPopup(route, point) {
   });
   copyActions.append(copyCoordinatesButton, copyMessageButton);
   container.appendChild(copyActions);
+
   return container;
 }
 
@@ -1156,6 +1157,19 @@ function pointPopup(point, allowDelete, displayNumber = point.ordem_ponto) {
   copyActions.append(copyCoordinatesButton, copyMessageButton);
   container.appendChild(copyActions);
 
+  const firstButton = document.createElement("button");
+  firstButton.type = "button";
+  firstButton.textContent = "Tornar este o primeiro ponto";
+  firstButton.disabled = Number(displayNumber) === 1;
+  if (firstButton.disabled) firstButton.textContent = "Este já é o primeiro ponto";
+  firstButton.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    firstButton.disabled = true;
+    await makeStudyPointFirst(point.id);
+  });
+  container.appendChild(firstButton);
+
   if (allowDelete) {
     container.appendChild(deletePopup(() => deleteManualPoint(point), "Excluir ponto manual"));
   }
@@ -1742,6 +1756,7 @@ function renderStudyComparison() {
         Longitude: ${Number(point.longitude).toFixed(6)}<br>
         Horário: <strong>${escapeHtml(scheduled?.calculatedTime || "-")}</strong>
         <div class="point-copy-actions">
+          <button type="button" data-first-study="${escapeHtml(point.id)}" ${index === 0 ? "disabled" : ""}>${index === 0 ? "Este já é o primeiro ponto" : "Tornar este o primeiro ponto"}</button>
           <button type="button" data-copy-coordinates="${escapeHtml(point.id)}">Copiar Lat</button>
           <button type="button" data-copy-message="${escapeHtml(point.id)}">Copiar mensagem</button>
         </div></div>
@@ -1759,6 +1774,12 @@ function renderStudyComparison() {
   ].join("") || '<p class="empty">Nenhum ponto de embarque.</p>';
   studyPointList.querySelectorAll("[data-move-study]").forEach((button) => {
     button.addEventListener("click", () => moveStudyPoint(button.dataset.moveStudy, Number(button.dataset.direction)));
+  });
+  studyPointList.querySelectorAll("[data-first-study]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      await makeStudyPointFirst(button.dataset.firstStudy);
+    });
   });
   studyPointList.querySelectorAll("[data-copy-coordinates]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -1832,6 +1853,13 @@ async function restoreVersion(versionId) {
   await loadVersionHistory();
   setTimeout(() => closeEditor(true), 700);
   return true;
+}
+
+async function makeStudyPointFirst(pointId) {
+  const stops = orderedPoints(editorPoints).filter((point) => ["primeiro", "manual"].includes(point.tipo_ponto));
+  const index = stops.findIndex((point) => String(point.id) === String(pointId));
+  if (index <= 0) return;
+  await moveStudyPoint(pointId, -index);
 }
 
 async function moveStudyPoint(pointId, direction) {

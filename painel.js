@@ -481,6 +481,7 @@ function downloadBlobFile(filename, content, mimeType) {
 function setMessage(text, type = "") {
   panelMessage.textContent = text;
   panelMessage.className = `message ${type}`.trim();
+  if (isMapModalOpen) mapStatus.textContent = text;
 }
 
 function getPointEditErrorMessage(error, action) {
@@ -1307,7 +1308,7 @@ function ensureRouteMap() {
 }
 
 function getMarkerIcon(point, isDuplicate = false) {
-  const typeClass = isDuplicate ? "duplicado" : point.tipo_ponto || "trajeto";
+  const typeClass = isDuplicate ? "duplicado" : getCurrentPointType(point);
   const markerContent = point.tipo_ponto === "trajeto"
     ? escapeHtml(point.ordem_ponto)
     : isManualPoint(point) ? "P" : "";
@@ -1330,6 +1331,13 @@ function getOrderedValidPoints(points) {
   return [...points]
     .filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude))
     .sort((a, b) => a.ordem_ponto - b.ordem_ponto);
+}
+
+function getCurrentPointType(point) {
+  if (point.tipo_ponto === "no") return "no";
+  const first = getOrderedValidPoints(currentRoutePoints).find((item) => item.tipo_ponto !== "no");
+  if (first && String(first.id) === String(point.id)) return "primeiro";
+  return point.tipo_ponto === "primeiro" ? "manual" : point.tipo_ponto || "trajeto";
 }
 
 function getRoutingControlPoints(points) {
@@ -1639,7 +1647,20 @@ function renderLayerEditorBoardingPoints() {
         "Ponto removido e rota recalculada. Oficialize a camada para salvar.";
       renderOfficialLayerEditor();
     });
-    popup.append(title, moveHint, removeButton);
+    const firstButton = document.createElement("button");
+    firstButton.type = "button";
+    firstButton.className = "popup-secondary-button";
+    firstButton.textContent = "Tornar este o primeiro ponto";
+    firstButton.disabled = getRouteStopPoints(currentRoutePoints)[0]?.id === point.id;
+    if (firstButton.disabled) firstButton.textContent = "Este já é o primeiro ponto";
+    firstButton.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      marker.closePopup();
+      firstButton.disabled = true;
+      await makeLayerPointFirst(point);
+    });
+    popup.append(title, moveHint, firstButton, removeButton);
     marker.bindPopup(popup);
     marker.on("dragstart", () => {
       marker.closePopup();
@@ -1665,6 +1686,32 @@ function renderLayerEditorBoardingPoints() {
       }
     });
   });
+}
+
+async function makeLayerPointFirst(point) {
+  const ordered = getOrderedValidPoints(currentRoutePoints);
+  const index = ordered.findIndex((item) => item.id === point.id);
+  if (index <= 0) return;
+  const previousPoints = currentRoutePoints;
+  const next = [...ordered];
+  next.splice(index, 1);
+  next.unshift(point);
+  layerEditorStatus.textContent = "Recalculando a rota a partir do novo primeiro ponto...";
+  try {
+    const geometry = await fetchRoutedLatLngs(getRouteStopPoints(
+      next.map((item, order) => ({ ...item, ordem_ponto: order + 1 }))
+    ));
+    if (geometry.length < 2) throw new Error("não foi possível calcular a nova rota");
+    currentRoutePoints = next.map((item, order) => ({ ...item, ordem_ponto: order + 1 }));
+    layerEditorGeometry = geometry;
+    layerEditorNodes = [];
+    saveOfficialLayerButton.disabled = false;
+    layerEditorStatus.textContent = "Primeiro ponto alterado. Oficialize a camada para salvar a nova sequência.";
+  } catch (error) {
+    currentRoutePoints = previousPoints;
+    layerEditorStatus.textContent = `Não foi possível alterar o primeiro ponto: ${error.message}`;
+  }
+  renderOfficialLayerEditor();
 }
 
 function showLayerEditorSearchResult(latitude, longitude, label) {
@@ -2644,11 +2691,11 @@ async function movePointToOrder(point, targetOrder) {
       points: previousOrder,
     };
     undoPointOrderButton.disabled = false;
-    setMessage("ID do ponto atualizado e trajeto recalculado.", "success");
     await loadSelectedRouteDetails();
+    setMessage(boundedOrder === 1 ? "Primeiro ponto atualizado e trajeto recalculado." : "ID do ponto atualizado e trajeto recalculado.", "success");
   } catch (error) {
-    setMessage(getPointEditErrorMessage(error, "alterar ID do ponto"), "error");
     await loadSelectedRouteDetails();
+    setMessage(getPointEditErrorMessage(error, "alterar ID do ponto"), "error");
   } finally {
     savingPointId = null;
     syncRefreshTimer();
@@ -2866,7 +2913,7 @@ function createPointPopupContent(point, maxOrder, overlapInfo = null) {
 
   const lines = [
     `<strong>${point.tipo_ponto === "no" ? "Nó de controle" : `Ponto ${escapeHtml(point.ordem_ponto)}`}</strong>`,
-    `Tipo: ${escapeHtml(getPointTypeLabel(point.tipo_ponto))}`,
+    `Tipo: ${escapeHtml(getPointTypeLabel(getCurrentPointType(point)))}`,
     `Horario: ${escapeHtml(formatDate(point.data_hora_registro))}`,
     `Latitude: ${escapeHtml(formatNumber(point.latitude))}`,
     `Longitude: ${escapeHtml(formatNumber(point.longitude))}`,
@@ -2936,6 +2983,29 @@ function createPointPopupContent(point, maxOrder, overlapInfo = null) {
 
   orderEditor.append(label, input, saveButton);
   container.appendChild(orderEditor);
+
+  if (point.tipo_ponto !== "no") {
+    const firstButton = document.createElement("button");
+    firstButton.type = "button";
+    firstButton.className = "popup-secondary-button";
+    firstButton.textContent = "Tornar este o primeiro ponto";
+    firstButton.disabled = getOrderedValidPoints(currentRoutePoints)[0]?.id === point.id;
+    if (firstButton.disabled) firstButton.textContent = "Este já é o primeiro ponto";
+    firstButton.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      suppressMapClickUntil = Date.now() + 800;
+      firstButton.disabled = true;
+      firstButton.textContent = "Atualizando primeiro ponto...";
+      try {
+        await movePointToOrder(point, 1);
+      } finally {
+        firstButton.disabled = getOrderedValidPoints(currentRoutePoints)[0]?.id === point.id;
+        firstButton.textContent = firstButton.disabled ? "Este já é o primeiro ponto" : "Tornar este o primeiro ponto";
+      }
+    });
+    container.appendChild(firstButton);
+  }
 
   if (point.tipo_ponto === "trajeto") {
     const manualButton = document.createElement("button");
@@ -3755,6 +3825,7 @@ function renderTrackingChecklist() {
         }
       </div>
       <div class="checklist-actions">
+        ${!route ? '<button class="button secondary" type="button" data-action="copy-official" data-permission="editar">Copiar rota oficial</button>' : ''}
         <button class="button secondary" type="button" data-action="align" data-permission="editar">
           ${alignment ? "Editar alinhamento" : "Alinhar condutor"}
         </button>
@@ -3780,6 +3851,9 @@ function renderTrackingChecklist() {
       deleteRoute(route)
     );
     AppAccess.applyPermissions(card);
+    card.querySelector('[data-action="copy-official"]')?.addEventListener('click', () =>
+      openCopyOfficialForDestination(option)
+    );
     card.querySelector('[data-action="align"]')?.addEventListener("click", () =>
       openAlignmentModal(option)
     );
@@ -3906,19 +3980,15 @@ async function loadPointCounts(routeIds) {
     return;
   }
 
-  const { data, error } = await supabaseClient
-    .from("trajeto_pontos")
-    .select("trajeto_id")
-    .in("trajeto_id", routeIds);
-
-  if (error) {
-    throw error;
+  // Conta no banco por trajeto, evitando truncar os registros no limite da API.
+  for (let start = 0; start < routeIds.length; start += 100) {
+    const { data, error } = await supabaseClient.from("trajetos")
+      .select("id,trajeto_pontos(count)").in("id", routeIds.slice(start, start + 100));
+    if (error) throw error;
+    (data || []).forEach((route) => {
+      pointCountByRouteId.set(route.id, Number(route.trajeto_pontos?.[0]?.count) || 0);
+    });
   }
-
-  data.forEach((point) => {
-    const current = pointCountByRouteId.get(point.trajeto_id) || 0;
-    pointCountByRouteId.set(point.trajeto_id, current + 1);
-  });
 }
 
 async function loadSelectedRouteDetails() {

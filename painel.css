@@ -1366,6 +1366,23 @@ h2 {
   border-color: var(--primary);
 }
 
+.popup-secondary-button:disabled {
+  opacity: .55;
+  cursor: default;
+  border-color: var(--line);
+  background: #f1f5f9;
+}
+
+.copy-official-dialog { width: min(560px, calc(100% - 32px)); max-height: 90vh; overflow: auto; border: 1px solid #d5ddec; border-radius: 14px; padding: 24px; color: #17244b; }
+.copy-official-dialog::backdrop { background: #07112c99; }
+.copy-official-dialog label { display: grid; gap: 6px; margin: 16px 0; }
+.copy-official-dialog input, .copy-official-dialog select { padding: 10px; border: 1px solid #d5ddec; border-radius: 6px; }
+.copy-official-actions { display: flex; justify-content: flex-end; gap: 12px; }
+#copyOfficialMessage { color: #b42318; }
+#copyOfficialOrigin { width: 100%; min-height: 170px; }
+#copyOfficialOrigin option { padding: 8px; }
+#copyOfficialOrigin option:disabled { color: #68738a; }
+
 .popup-secondary-button + .popup-danger-button {
   margin-left: 6px;
 }

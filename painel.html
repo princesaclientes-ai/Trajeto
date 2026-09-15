@@ -9,7 +9,7 @@
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     />
-    <link rel="stylesheet" href="painel.css?v=20260821-2" />
+    <link rel="stylesheet" href="painel.css?v=20260914-6" />
     <link rel="stylesheet" href="access-control.css?v=20260821-3" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="access-control.js?v=20260821-7"></script>
@@ -22,7 +22,8 @@
     <script defer src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
     <script defer src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"></script>
     <script defer src="mapa-base.js?v=20260911-2"></script>
-    <script defer src="painel.js?v=20260911-3"></script>
+    <script defer src="painel.js?v=20260914-8"></script>
+    <script defer src="copiar-rota.js?v=20260914-10"></script>
   </head>
   <body>
     <main class="dashboard-shell">
@@ -280,6 +281,7 @@
               </div>
               <span id="mapStatus">Selecione um trajeto</span>
               <div class="export-actions" aria-label="Exportar trajeto">
+                <button class="export-button" id="copyOfficialRouteButton" type="button" data-permission="editar">Copiar rota oficial</button>
                 <button class="export-button" id="exportJsonButton" type="button" disabled data-permission="exportar">
                   JSON
                 </button>
@@ -579,6 +581,29 @@
         <div class="trash-list" id="trashList"><p class="empty-cell">Carregando...</p></div>
       </section>
     </div>
+    <dialog id="copyOfficialDialog" class="copy-official-dialog">
+      <form id="copyOfficialForm">
+        <h2>Copiar rota oficial para outra linha</h2>
+        <p id="copyOfficialSource"></p>
+        <div id="copyOfficialSourcePicker" hidden>
+          <label>Cliente de origem <select id="copyOfficialClient"></select></label>
+          <label>Linhas oficiais percorridas no mesmo sentido <select id="copyOfficialOrigin" size="6" aria-label="Linhas oficiais percorridas no mesmo sentido"></select></label>
+          <label>Buscar linha <input id="copyOfficialSearch" type="search" placeholder="Filtrar linhas do cliente" /></label>
+        </div>
+        <p>A cópia acompanhará as alterações salvas na rota oficial de origem, mantendo seu próprio horário de partida (Saída) ou de chegada ao cliente (Entrada). O destino será identificado como cópia, sem registrar uma nova coleta por condutor.</p>
+        <label>Linha de destino (somente não percorridas) <select id="copyOfficialTarget" required></select></label>
+        <label>Data de referência <input id="copyOfficialDate" type="date" required></label>
+        <label><span id="copyOfficialTimeLabel">Horário de referência</span> (Brasília)
+          <input id="copyOfficialTime" type="time" step="1" required>
+        </label>
+        <p id="copyOfficialPreview" role="status"></p>
+        <p id="copyOfficialMessage" role="alert"></p>
+        <div class="copy-official-actions">
+          <button class="button secondary" id="cancelCopyOfficial" type="button">Cancelar</button>
+          <button class="button primary" id="confirmCopyOfficial" type="submit">Criar cópia oficial</button>
+        </div>
+      </form>
+    </dialog>
   </body>
 </html>
 
