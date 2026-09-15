@@ -5,6 +5,9 @@ begin;
 alter table public.trajetos add column if not exists trajeto_origem_id uuid references public.trajetos(id) on delete set null;
 alter table public.trajetos add column if not exists copiado_por uuid references auth.users(id) on delete set null;
 alter table public.trajetos add column if not exists copia_horario_referencia timestamptz;
+-- Cada origem encontra somente suas proprias copias, inclusive com muitas linhas.
+create index if not exists idx_trajetos_copias_origem
+  on public.trajetos (trajeto_origem_id) where deleted_at is null;
 
 drop function if exists public.copy_official_route(uuid,text,date,time);
 drop function if exists public.copy_official_route(uuid,text,date,time,text);
@@ -114,6 +117,8 @@ declare
   v_anchor timestamptz;
   v_reference timestamptz;
   v_shift interval;
+  v_fingerprint text;
+  v_synced jsonb;
 begin
   if not exists (select 1 from public.trajetos where trajeto_origem_id = p_source_id and deleted_at is null) then return; end if;
   select * into v_source from public.trajetos where id = p_source_id and deleted_at is null;
@@ -127,6 +132,16 @@ begin
     order by case when lower(v_source.sentido) = 'entrada' then -(p->>'ordem_ponto')::integer else (p->>'ordem_ponto')::integer end
     limit 1;
   if v_anchor is null then return; end if;
+  -- Deduplica pelo conteudo, nao apenas pelo ID: uma copia pode ter sido
+  -- processada antes de sua origem na fila de eventos da mesma transacao.
+  v_fingerprint := md5(jsonb_build_array(v_source.geometria_validada,
+    v_source.nos_validacao, v_source.status,
+    (select jsonb_agg(p - 'id' - 'trajeto_id' order by (p->>'ordem_ponto')::integer)
+      from jsonb_array_elements(v_points) p))::text);
+  v_synced := coalesce(nullif(current_setting('trajeto.copy_sync_fingerprints', true), ''), '{}')::jsonb;
+  if v_synced->>p_source_id::text = v_fingerprint then return; end if;
+  perform set_config('trajeto.copy_sync_fingerprints',
+    (v_synced || jsonb_build_object(p_source_id::text, v_fingerprint))::text, true);
   for v_target in select * from public.trajetos
     where trajeto_origem_id = p_source_id and deleted_at is null order by id for update
   loop
@@ -160,7 +175,6 @@ returns trigger language plpgsql security definer set search_path = public
 as $queue_sync$
 declare
   v_id uuid;
-  v_seen jsonb := coalesce(nullif(current_setting('trajeto.copy_sync_seen', true), ''), '[]')::jsonb;
 begin
   if tg_table_name = 'trajeto_pontos' then
     if tg_op = 'DELETE' then v_id := old.trajeto_id; else v_id := new.trajeto_id; end if;
@@ -170,9 +184,7 @@ begin
       and new.status is not distinct from old.status then return null; end if;
     v_id := new.id;
   end if;
-  -- Eventos diferidos usam o estado final da transacao e sincronizam uma vez por origem.
-  if v_seen ? v_id::text then return null; end if;
-  perform set_config('trajeto.copy_sync_seen', (v_seen || jsonb_build_array(v_id::text))::text, true);
+  -- A funcao compara o estado atual para nao descartar alteracoes posteriores.
   perform public.sync_official_route_copies(v_id);
   return null;
 end;
@@ -187,4 +199,19 @@ drop trigger if exists sync_copies_after_geometry on public.trajetos;
 create constraint trigger sync_copies_after_geometry
   after update on public.trajetos
   deferrable initially deferred for each row execute function public.queue_official_copy_sync();
+
+-- Recupera alteracoes anteriores a instalacao dos gatilhos. Nunca deduz
+-- vinculos por nome de linha/cliente: apenas trajeto_origem_id e utilizado.
+do $repair_copies$
+declare v_source_id uuid;
+begin
+  for v_source_id in
+    select distinct trajeto_origem_id from public.trajetos
+    where trajeto_origem_id is not null and deleted_at is null
+    order by trajeto_origem_id
+  loop
+    perform public.sync_official_route_copies(v_source_id);
+  end loop;
+end;
+$repair_copies$;
 commit;

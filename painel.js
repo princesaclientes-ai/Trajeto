@@ -3997,19 +3997,25 @@ async function loadSelectedRouteDetails() {
     return;
   }
 
-  const route = getSelectedRoute();
-
-  const { data, error } = await supabaseClient
-    .from("trajeto_pontos")
-    .select("id, latitude, longitude, data_hora_registro, ordem_ponto, tipo_ponto, precisao")
-    .eq("trajeto_id", selectedRouteId)
-    .order("ordem_ponto", { ascending: true });
-
-  if (error) {
-    throw error;
-  }
-
-  renderRouteDetails(route, data || []);
+  const routeId = selectedRouteId;
+  // A sincronizacao pode ter alterado geometria, nos e horarios da copia
+  // desde a carga da lista. Recarregar apenas pontos deixa o mapa antigo.
+  const [routeResult, pointsResult] = await Promise.all([
+    supabaseClient.from("trajetos")
+      .select("id, matricula_condutor, cliente, sentido, nome_linha, status, data_hora_inicio, data_hora_fim, created_at, deleted_at, geometria_validada, nos_validacao")
+      .eq("id", routeId).is("deleted_at", null).single(),
+    supabaseClient.from("trajeto_pontos")
+      .select("id, latitude, longitude, data_hora_registro, ordem_ponto, tipo_ponto, precisao")
+      .eq("trajeto_id", routeId).order("ordem_ponto", { ascending: true }),
+  ]);
+  if (routeId !== selectedRouteId) return;
+  if (routeResult.error) throw routeResult.error;
+  if (pointsResult.error) throw pointsResult.error;
+  const route = routeResult.data;
+  const cachedRoute = routes.find((item) => item.id === routeId);
+  if (cachedRoute) Object.assign(cachedRoute, route);
+  routedLineCache.clear();
+  renderRouteDetails(route, pointsResult.data || []);
 }
 
 async function loadRoutes() {

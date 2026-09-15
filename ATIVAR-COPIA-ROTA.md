@@ -2,6 +2,18 @@
 
 ## Sincronização das cópias
 
+### Correção de 15/09/2026
+
+**Atualização das telas:** `painel.js` agora busca novamente geometria, nós, status e horários ao abrir os detalhes de uma linha. `consolidado-linhas.js` recarrega os trajetos do cliente, incluindo as cópias, após oficializar. Antes, as duas telas podiam mostrar o desenho antigo mesmo com os pontos atualizados no banco. Publique `painel.html`, `painel.js`, `consolidado-linhas.html` e `consolidado-linhas.js` juntos (pacote `correcao-sincronizacao-telas-20260915.zip`). Os HTMLs incluem nova versão dos scripts para renovar o cache. Se o SQL abaixo já foi executado, esta correção das telas não exige executá-lo novamente. Validação: 21 testes locais passaram; o comportamento no site publicado ainda precisa ser conferido.
+
+Execute **supabase-copiar-rota-oficial.sql completo** no SQL Editor do Supabase. Esta revisão também atualiza as cópias vinculadas que ficaram atrasadas antes da instalação. Alterações sucessivas na mesma transação são verificadas pelo conteúdo; isso corrige o caso em que uma cópia era processada antes de sua origem e não repassava a atualização final às próximas cópias.
+
+Cada linha oficial atualiza exclusivamente os destinos cujo `trajeto_origem_id` aponta para ela. Um índice acelera essa busca com várias origens e vários destinos. Cliente, nome da linha e horário próprio do destino são preservados.
+
+Para conferir **2B - Nova Odessa → 2B.1 - Nova Odessa 22:30h**, execute `supabase-diagnostico-sincronizacao-copias.sql`. Ele mostra o vínculo e os gatilhos instalados, sem alterar dados. Se o destino estiver sem vínculo, será necessário identificar os IDs corretos de origem e destino, incluindo cliente e sentido; o reparo não associa linhas automaticamente pelo nome.
+
+Validação local: PostgreSQL via PGlite, com Entrada/Saída, virada de dia, múltiplas origens, vários destinos, cópias encadeadas, duas alterações na mesma transação, recuperação de cópias antigas e reinstalação do SQL. A instalação no Supabase ainda precisa ser realizada; alterar os arquivos do site não instala os gatilhos do banco.
+
 Execute novamente o arquivo SQL completo para ativar a sincronização automática. As cópias vinculadas por `trajeto_origem_id` acompanham alterações de pontos, ordem, geometria e nós da origem, incluindo edições pelo painel e consolidado. A sincronização usa o estado final da transação. A partida de Saída e a chegada ao cliente de Entrada são preservadas em `copia_horario_referencia`; os demais horários são deslocados conforme os intervalos atualizados da origem. Cópias já existentes recebem sua referência atual ao instalar o SQL. Após a atualização, a cópia fica no status `trajeto` para nova conferência/exportação. A exclusão da origem não apaga suas cópias. Execuções sem pontos suficientes não são propagadas.
 
 Correção de permissão: execute novamente o SQL atualizado para que a cópia reconheça `editar` e `painel.editar`. A função continua exigindo usuário autenticado e acesso aos clientes de origem e destino. O painel verifica a sessão antes de enviar a cópia. Se o banco continuar negando edição, confira as permissões do usuário no gerenciador; esta atualização não altera as permissões cadastradas dos usuários.

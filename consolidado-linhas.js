@@ -582,7 +582,7 @@ async function selectClient() {
   const loadGeneration = ++overviewLoadGeneration;
   overviewNeedsFit = true;
   const client = clientFilter.value;
-  clientRoutes = client ? latestRoutesForClient(client, directionFilter.value) : [];
+  clientRoutes = [];
   pointsByRoute = new Map();
   overviewGeometryByRoute = new Map();
   overviewAccessGeometry = [];
@@ -593,12 +593,23 @@ async function selectClient() {
     pageStatus.textContent = "Selecione um cliente para visualizar as linhas.";
     return;
   }
-  if (!clientRoutes.length) {
-    lineList.innerHTML = '<p class="empty">Nenhuma linha encontrada.</p>';
-    return;
-  }
   pageStatus.textContent = "Carregando todos os pontos e itinerários...";
   try {
+    // Recarrega tambem as geometrias das copias atualizadas pelo banco.
+    // A lista em memoria so era renovada ao abrir a pagina.
+    const { data: freshRoutes, error: routeError } = await db.from("trajetos")
+      .select("id,cliente,sentido,nome_linha,status,created_at,geometria_validada,nos_validacao")
+      .eq("cliente", client).is("deleted_at", null)
+      .order("created_at", { ascending: false });
+    if (loadGeneration !== overviewLoadGeneration) return;
+    if (routeError) throw routeError;
+    routes = routes.filter((route) => route.cliente !== client).concat(freshRoutes || []);
+    clientRoutes = latestRoutesForClient(client, directionFilter.value);
+    if (!clientRoutes.length) {
+      lineList.innerHTML = '<p class="empty">Nenhuma linha encontrada.</p>';
+      pageStatus.textContent = "Nenhuma linha encontrada.";
+      return;
+    }
     const points = await fetchAllPoints(clientRoutes.map((route) => route.id));
     if (loadGeneration !== overviewLoadGeneration) return;
     points.forEach((point) => {
